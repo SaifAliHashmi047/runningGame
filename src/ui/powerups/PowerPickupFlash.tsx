@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
+  cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
   withSequence,
@@ -26,7 +27,15 @@ export default function PowerPickupFlash({ kind, token }: PowerPickupFlashProps)
   const opacity = useSharedValue(0);
 
   useEffect(() => {
-    if (!kind || token <= 0) return;
+    if (!kind || token <= 0) {
+      cancelAnimation(opacity);
+      cancelAnimation(scale);
+      opacity.value = 0;
+      scale.value = 0.6;
+      return;
+    }
+    cancelAnimation(opacity);
+    cancelAnimation(scale);
     opacity.value = 0;
     scale.value = 0.5;
     opacity.value = withSequence(
@@ -37,6 +46,10 @@ export default function PowerPickupFlash({ kind, token }: PowerPickupFlashProps)
       withTiming(1.12, { duration: 160, easing: Easing.out(Easing.back(1.2)) }),
       withTiming(0.92, { duration: 200, easing: Easing.inOut(Easing.quad) })
     );
+    return () => {
+      cancelAnimation(opacity);
+      cancelAnimation(scale);
+    };
   }, [kind, token, opacity, scale]);
 
   const aStyle = useAnimatedStyle(() => ({

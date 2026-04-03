@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useSharedValue } from "react-native-reanimated";
+import { cancelAnimation, useSharedValue } from "react-native-reanimated";
 import {
   View,
   Text,
@@ -8,20 +8,23 @@ import {
   Pressable,
   Platform,
   Modal,
+  type GestureResponderEvent,
+  type LayoutChangeEvent,
 } from "react-native";
 import type { ShipVariant } from "./components/Ship";
 import HeroGameAnchor from "./components/HeroGameAnchor";
-import GameObstacle from "./components/GameObstacle";
 import SkyLane from "./components/SkyLane";
 import ShopModal from "./components/ShopModal";
-import PowerUp from "./components/PowerUp";
-import Coin from "./components/Coin";
+import { powerUpWorldRenderOutset } from "./components/PowerUp";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import HomeScreen from "./src/screens/HomeScreen";
+import { GameplayReducedMotion } from "./src/game/motion/GameplayReducedMotion";
 import type { ObstacleVisual } from "./src/game/types";
 import {
   aabbOverlap,
-  obstacleCollisionAabb,
+  DEBUG_DRAW_COLLISION_BOXES,
+  DEBUG_DRAW_VISUAL_BOUNDS,
+  obstacleCollisionRect,
   obstacleHitSize,
   playerCollisionAabb,
 } from "./src/game/hitboxes";
@@ -33,6 +36,7 @@ import type { PowerUpKind } from "./src/game/powers";
 import { pickPowerUpKind, POWERUP_DEFS } from "./src/game/powers";
 import { ActivePowerUpsHud, PowerPickupFlash } from "./src/ui/powerups";
 import AppStatusBar from "./src/ui/AppStatusBar";
+import { getAudioManager } from "./src/audio";
 import {
   OBSTACLE_SIZE_MIN,
   OBSTACLE_SIZE_MAX,
@@ -72,34 +76,51 @@ import { materializeCoinPattern, pickCoinPattern } from "./src/game/runner/coinP
 import {
   obstacleSpawnIntervalFrames,
   runElapsedSeconds,
-  runnerDifficultyLevel,
-  runnerPhaseIndex,
   runnerSpeedFromElapsedSec,
 } from "./src/game/runner/runnerProgression";
 import {
+  RUN_DISTANCE_PER_SPEED_SECOND,
+  ZONE_SPEED_LERP,
+  coinPatternPhaseFromZone,
+  getRunnerZoneByDistance,
+  patternPhaseFromZoneIndex,
+} from "./src/game/zones/runnerZones";
+import {
   DEBUG_PERF_OVERLAY,
   MAX_DELTA_MS,
-  MAX_FRAME_SCALE,
   PERF_UI_REFRESH_MS,
   TARGET_FRAME_MS,
   type VisualQualityTier,
 } from "./src/game/performanceConfig";
+import { planSimulationSubsteps, stepWallMsForK } from "./src/game/runLoop/fixedSubsteps";
+import { EntityPool } from "./src/game/runLoop/entityPool";
+import { ENTITY_CULL_BELOW_SCREEN_PAD, fillRenderVisible } from "./src/game/runLoop/fillRenderVisible";
+import { obstacleBroadphaseX } from "./src/game/runLoop/broadphaseCollision";
 import { PerfSampler, type PerfSamplerStats } from "./src/game/performanceSampler";
-import { forEachObstacleInVerticalBand } from "./src/game/collisionQueries";
 import FpsPerfOverlay from "./src/ui/FpsPerfOverlay";
+import GameRunHud from "./src/ui/game/GameRunHud";
+import {
+  HUD_SCORE_THROTTLE_MS,
+  MAX_ACTIVE_COINS,
+  MAX_ACTIVE_OBSTACLES,
+  MAX_ACTIVE_POWERUPS,
+  packVisibleIntoEntityPosSV,
+} from "./src/game/perf/entityPositionPack";
+import { forEachObstacleInVerticalBand, obstacleLaneRelevantForPlayer } from "./src/game/collisionQueries";
+import type { EntityPosMap } from "./src/ui/game/entityPositions";
+import WorldEntityLayer from "./src/ui/game/WorldEntityLayer";
+import type { TrackedObstacleSpec } from "./src/ui/game/TrackedObstacle";
+import type { CoinRenderSpec, PowerRenderSpec } from "./src/ui/game/WorldEntityLayer";
 import { fontPixel, heightPixel, moderateScale, scale, screenHeight, screenWidth } from "./utils/responsive";
 
-/** Background art cycles by score — separate from combat difficulty phase. */
-const BG_THEMES = [
-  { label: "Zone 1", top: "#0b1730", mid: "#1b3358" },
-  { label: "Zone 2", top: "#10243e", mid: "#1e3a5f" },
-  { label: "Zone 3", top: "#162744", mid: "#224870" },
-  { label: "Zone 4", top: "#1a1b3a", mid: "#3a2758" },
-  { label: "Zone 5", top: "#220b2a", mid: "#4a1e5f" },
-];
-const BG_SCORE_SPAN = 6000;
-function getBgThemeIndex(score: number): number {
-  return Math.floor(Math.max(0, score) / BG_SCORE_SPAN) % BG_THEMES.length;
+/**
+ * Score tiers rotate which day-cycle SVG is mapped to each beat (morning/day/sunset/night).
+ * Same four images, different order per tier — no full-screen color wash over the art.
+ */
+const BG_IMAGE_SCORE_SPAN = 3500;
+const BG_IMAGE_PHASE_COUNT = 4;
+function getBackgroundImagePhase(distanceFloor: number): number {
+  return Math.floor(Math.max(0, distanceFloor) / BG_IMAGE_SCORE_SPAN) % BG_IMAGE_PHASE_COUNT;
 }
 const SCREEN_WIDTH = screenWidth;
 const SCREEN_HEIGHT = screenHeight;
@@ -117,13 +138,14 @@ const CURRENT_SKIN_KEY = "@stackRunner/currentSkin";
 const GRAVITY = 0.72;
 const JUMP_FORCE = 15;
 const GROUND_HEIGHT = heightPixel(128);
-const PLAYER_WIDTH = scale(48);
-const PLAYER_HEIGHT = scale(52);
+const PLAYER_WIDTH = scale(56);
+const PLAYER_HEIGHT = scale(60);
 const PLAYER_START_LANE = 1;
 /** Lane grid — ship starts centered in lane 1 (Subway-style three lanes). */
 const LANE_MARGIN = scale(RUNNER_LANE_MARGIN);
-const laneGeom = () => computeLaneGeometry(SCREEN_WIDTH, PLAYER_WIDTH, LANE_MARGIN);
-const PLAYER_X = laneGeom().playerLeftFromLane(PLAYER_START_LANE);
+/** One shared geometry — `computeLaneGeometry` was called every frame via `laneGeom()` (alloc + closures). */
+const LANE_GEOM = computeLaneGeometry(SCREEN_WIDTH, PLAYER_WIDTH, LANE_MARGIN);
+const PLAYER_X = LANE_GEOM.playerLeftFromLane(PLAYER_START_LANE);
 
 /** Horizontal hero follow — tuned for smooth, non-jittery finger tracking. */
 const FINGER_DEAD_ZONE_PX = 1.15;
@@ -135,7 +157,7 @@ function clampPlayerLeft(left: number): number {
 }
 
 function nearestLaneIndex(playerLeft: number): number {
-  const g = laneGeom();
+  const g = LANE_GEOM;
   let best = 0;
   let bestD = Infinity;
   for (let lane = 0; lane < 3; lane++) {
@@ -158,6 +180,15 @@ type Obstacle = {
   visual: ObstacleVisual;
   color: string;
   driftPhase?: number;
+  lane: number;
+  /** Cached render size — from `obstacleHitSize` at spawn. */
+  visW: number;
+  visH: number;
+  /** Cached collision AABB relative to `obs.x` / `obs.y` (from `obstacleCollisionRect` at origin). */
+  hitOffX: number;
+  hitOffY: number;
+  hitW: number;
+  hitH: number;
 };
 
 type PowerUpItem = {
@@ -175,6 +206,22 @@ type CoinItem = {
   size: number;
 };
 
+function dedupeCoinsInPlace(coins: CoinItem[], release: (c: CoinItem) => void): void {
+  const seen = new Set<number>();
+  let w = 0;
+  for (let i = 0; i < coins.length; i++) {
+    const e = coins[i];
+    if (seen.has(e.id)) {
+      release(e);
+      continue;
+    }
+    seen.add(e.id);
+    if (w !== i) coins[w] = e;
+    w++;
+  }
+  coins.length = w;
+}
+
 type SimState = {
   playerY: number;
   playerX: number;
@@ -187,6 +234,11 @@ type SimState = {
   spawnCooldown: number;
   powerSpawnCooldown: number;
   coinSpawnCooldown: number;
+  /** Continuous distance traveled — `Math.floor(runDistance)` is the distance score component. */
+  runDistance: number;
+  /** Coins, near-misses, danger clears, etc. */
+  pickupScore: number;
+  /** Total = floor(runDistance) + pickupScore (cached for systems that read `score`). */
   score: number;
   coinsCollected: number;
   paused: boolean;
@@ -226,6 +278,17 @@ type SimState = {
   nearMissCooldown: number;
   /** Cached from last `resolveRunPressure` for HUD / danger vignettes. */
   dangerVisual: DangerVisual;
+  /** Last zone index used for “Zone N” toast (avoid duplicate toasts). */
+  lastAnnouncedZoneIndex: number;
+  /** Render-only culled copies (references into live arrays); counts valid after each sim frame. */
+  _visObs: Obstacle[];
+  _visCoins: CoinItem[];
+  _visPow: PowerUpItem[];
+  _visObsN: number;
+  _visCoinsN: number;
+  _visPowN: number;
+  /** Reused for obstacle-pattern coin drops (no per-spawn `[]`). */
+  patternCoinScratch: CoinItem[];
 };
 
 function collides(playerY: number, playerX: number, obs: Obstacle): boolean {
@@ -237,8 +300,14 @@ function collides(playerY: number, playerX: number, obs: Obstacle): boolean {
     screenHeight: SCREEN_HEIGHT,
     groundHeight: GROUND_HEIGHT,
   });
-  const obsBox = obstacleCollisionAabb(obs);
-  return aabbOverlap(playerBox, obsBox);
+  const left = obs.x + obs.hitOffX;
+  const top = obs.y + obs.hitOffY;
+  return aabbOverlap(playerBox, {
+    left,
+    right: left + obs.hitW,
+    top,
+    bottom: top + obs.hitH,
+  });
 }
 
 function collidesPower(playerY: number, playerX: number, p: PowerUpItem): boolean {
@@ -267,6 +336,42 @@ function collidesCoin(playerY: number, playerX: number, c: CoinItem): boolean {
   return oLeft < pRight && oRight > pLeft && oTop < pBottom && oBottom > pTop;
 }
 
+const HITBOX_OVERLAY_ENABLED = DEBUG_DRAW_COLLISION_BOXES || DEBUG_DRAW_VISUAL_BOUNDS;
+
+function visibleEntitySig<T extends { id: number }>(items: readonly T[], n: number): string {
+  if (n === 0) return "";
+  let s = String(n);
+  for (let i = 0; i < n; i++) s += `:${items[i].id}`;
+  return s;
+}
+
+function buildObstacleRenderSpecs(obs: readonly Obstacle[], n: number): TrackedObstacleSpec[] {
+  const out: TrackedObstacleSpec[] = [];
+  for (let i = 0; i < n; i++) {
+    const o = obs[i];
+    out.push({ id: o.id, visW: o.visW, visH: o.visH, color: o.color });
+  }
+  return out;
+}
+
+function buildCoinRenderSpecs(items: readonly CoinItem[], n: number): CoinRenderSpec[] {
+  const out: CoinRenderSpec[] = [];
+  for (let i = 0; i < n; i++) {
+    const c = items[i];
+    out.push({ id: c.id, size: c.size });
+  }
+  return out;
+}
+
+function buildPowerRenderSpecs(items: readonly PowerUpItem[], n: number): PowerRenderSpec[] {
+  const out: PowerRenderSpec[] = [];
+  for (let i = 0; i < n; i++) {
+    const p = items[i];
+    out.push({ id: p.id, kind: p.type, size: p.size });
+  }
+  return out;
+}
+
 const initialSim = (): SimState => ({
   playerY: 0,
   playerX: PLAYER_X,
@@ -279,6 +384,8 @@ const initialSim = (): SimState => ({
   spawnCooldown: 34,
   powerSpawnCooldown: 100,
   coinSpawnCooldown: 90,
+  runDistance: 0,
+  pickupScore: 0,
   score: 0,
   coinsCollected: 0,
   paused: false,
@@ -312,6 +419,14 @@ const initialSim = (): SimState => ({
   lastSurvivalSi: 0,
   nearMissCooldown: 0,
   dangerVisual: "none",
+  lastAnnouncedZoneIndex: 0,
+  _visObs: [],
+  _visCoins: [],
+  _visPow: [],
+  _visObsN: 0,
+  _visCoinsN: 0,
+  _visPowN: 0,
+  patternCoinScratch: [],
 });
 
 function snapshotDangerFields() {
@@ -330,6 +445,16 @@ type GameScreenProps = {
 function GameScreen({ onExitToHome }: GameScreenProps) {
   const sim = useRef<SimState>(initialSim());
   const obstacleIdRef = useRef(0);
+  /** Strictly increasing — never mix offset formulas per type (those can collide). */
+  const allocEntityId = (): number => {
+    obstacleIdRef.current += 1;
+    return obstacleIdRef.current;
+  };
+  const obstaclePoolRef = useRef(new EntityPool<Obstacle>(() => ({} as Obstacle)));
+  const coinPoolRef = useRef(new EntityPool<CoinItem>(() => ({} as CoinItem)));
+  const powerPoolRef = useRef(new EntityPool<PowerUpItem>(() => ({} as PowerUpItem)));
+  const simSubstepBankRef = useRef(0);
+  const substepKsRef = useRef<number[]>([]);
   const rafRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
   const lastDragEndMsRef = useRef(0);
@@ -340,18 +465,56 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
   const lastFramePerfRef = useRef(perfNow());
   const lastPerfUiRef = useRef(0);
 
-  const [, setFrame] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [highScore, setHighScore] = useState(0);
   const [paused, setPaused] = useState(false);
   const [perfStats, setPerfStats] = useState<PerfSamplerStats | null>(null);
   const [visualTier, setVisualTier] = useState<VisualQualityTier>(0);
+  const [worldFx, setWorldFx] = useState(() => ({
+    dangerVisual: "none" as DangerVisual,
+    feverActive: false,
+  }));
+  const [heroAuraMask, setHeroAuraMask] = useState(0);
+  const [uiEpoch, setUiEpoch] = useState(0);
+  const [zoneBanner, setZoneBanner] = useState<{ id: number; zoneNumber: number } | null>(null);
+
+  const lastWorldFxKeyRef = useRef("none|0");
+  const lastAuraMaskRef = useRef(0);
 
   const heroLeftSV = useSharedValue(PLAYER_X);
   const heroBottomSV = useSharedValue(GROUND_HEIGHT);
   const heroSteerSV = useSharedValue(0);
   const heroPulseSV = useSharedValue(1);
   const heroMagnetYSV = useSharedValue(0);
+
+  const obsPositionsSV = useSharedValue<EntityPosMap>({});
+  const coinPositionsSV = useSharedValue<EntityPosMap>({});
+  const powerPositionsSV = useSharedValue<EntityPosMap>({});
+  const obsPosScratchRef = useRef<EntityPosMap>({});
+  const coinPosScratchRef = useRef<EntityPosMap>({});
+  const powerPosScratchRef = useRef<EntityPosMap>({});
+  const obsAliveRef = useRef<Set<number>>(new Set());
+  const coinAliveRef = useRef<Set<number>>(new Set());
+  const powerAliveRef = useRef<Set<number>>(new Set());
+
+  const [obsRenderSpecs, setObsRenderSpecs] = useState<TrackedObstacleSpec[]>([]);
+  const [coinRenderSpecs, setCoinRenderSpecs] = useState<CoinRenderSpec[]>([]);
+  const [powerRenderSpecs, setPowerRenderSpecs] = useState<PowerRenderSpec[]>([]);
+  const obsSigRef = useRef("");
+  const coinSigRef = useRef("");
+  const powSigRef = useRef("");
+
+  /** Bumped on `resetGame` so long-lived Reanimated trees restart cleanly (no carryover mid-cycle). */
+  const [runSessionKey, setRunSessionKey] = useState(0);
+
+  const [runHud, setRunHud] = useState({ score: 0, distanceFloor: 0 });
+  /** Matches gameplay `View` size inside SafeArea — day-cycle SVG must use this, not raw window dims. */
+  const [gameLayout, setGameLayout] = useState<{ w: number; h: number } | null>(null);
+  const [bgPhase, setBgPhase] = useState(0);
+  const bgPhaseRef = useRef(0);
+  const lastHudPushRef = useRef(0);
+  const lastHudScoreRef = useRef(0);
+  const lastHudDistRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -382,12 +545,53 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     };
   }, []);
 
+  useEffect(() => {
+    const a = getAudioManager();
+    void a.preload().then(() => {
+      a.onGameSessionStart();
+    });
+    return () => {
+      a.onGameSessionEnd();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!gameOver) return;
+    getAudioManager().onGameOver();
+  }, [gameOver]);
+
+  useEffect(() => {
+    if (gameOver) return;
+    const a = getAudioManager();
+    if (paused) {
+      a.pauseGameAudio();
+    } else {
+      a.resumeGameAudio();
+    }
+  }, [paused, gameOver]);
+
   const resetGame = useCallback(() => {
+    const prev = sim.current;
+    const oPool = obstaclePoolRef.current;
+    for (let i = 0; i < prev.obstacles.length; i++) oPool.release(prev.obstacles[i]);
+    const cPool = coinPoolRef.current;
+    for (let i = 0; i < prev.coins.length; i++) cPool.release(prev.coins[i]);
+    for (let i = 0; i < prev.patternCoinScratch.length; i++) cPool.release(prev.patternCoinScratch[i]);
+    const pPool = powerPoolRef.current;
+    for (let i = 0; i < prev.powerUps.length; i++) pPool.release(prev.powerUps[i]);
+
     sim.current = initialSim();
     obstacleIdRef.current = 0;
+    simSubstepBankRef.current = 0;
     perfSamplerRef.current.reset();
     lastFramePerfRef.current = perfNow();
     lastPerfUiRef.current = 0;
+    isDraggingRef.current = false;
+    cancelAnimation(heroLeftSV);
+    cancelAnimation(heroBottomSV);
+    cancelAnimation(heroSteerSV);
+    cancelAnimation(heroPulseSV);
+    cancelAnimation(heroMagnetYSV);
     heroLeftSV.value = PLAYER_X;
     heroBottomSV.value = GROUND_HEIGHT;
     heroSteerSV.value = 0;
@@ -395,12 +599,44 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     heroMagnetYSV.value = 0;
     lastFingerXRef.current = null;
     touchOffsetRef.current = 0;
+    obsPositionsSV.value = {};
+    coinPositionsSV.value = {};
+    powerPositionsSV.value = {};
+    obsPosScratchRef.current = {};
+    coinPosScratchRef.current = {};
+    powerPosScratchRef.current = {};
+    obsAliveRef.current = new Set();
+    coinAliveRef.current = new Set();
+    powerAliveRef.current = new Set();
+    setRunSessionKey((k) => k + 1);
+    obsSigRef.current = "";
+    coinSigRef.current = "";
+    powSigRef.current = "";
+    setObsRenderSpecs([]);
+    setCoinRenderSpecs([]);
+    setPowerRenderSpecs([]);
     setGameOver(false);
     setPaused(false);
     setPerfStats(null);
     setVisualTier(0);
-    setFrame((f) => f + 1);
+    lastWorldFxKeyRef.current = "none|0";
+    lastAuraMaskRef.current = 0;
+    setWorldFx({ dangerVisual: "none", feverActive: false });
+    setHeroAuraMask(0);
+    setZoneBanner(null);
+    setRunHud({ score: 0, distanceFloor: 0 });
+    setBgPhase(0);
+    bgPhaseRef.current = 0;
+    lastHudPushRef.current = 0;
+    lastHudScoreRef.current = 0;
+    lastHudDistRef.current = 0;
   }, [heroBottomSV, heroLeftSV, heroMagnetYSV, heroPulseSV, heroSteerSV]);
+
+  useEffect(() => {
+    if (!zoneBanner) return;
+    const t = setTimeout(() => setZoneBanner(null), 2200);
+    return () => clearTimeout(t);
+  }, [zoneBanner]);
 
   const handleJump = useCallback(() => {
     if (gameOver) {
@@ -416,6 +652,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
   }, [gameOver, resetGame, paused]);
 
   const handleRetry = useCallback(() => {
+    getAudioManager().onRunRestart();
     resetGame();
   }, [resetGame]);
 
@@ -425,11 +662,11 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
   }, [resetGame, onExitToHome]);
 
   const toggleShop = useCallback(() => {
+    getAudioManager().playButtonTap();
     const next = !sim.current.shopOpen;
     sim.current.shopOpen = next;
     sim.current.paused = next;
     setPaused(next);
-    setFrame((f) => f + 1);
   }, []);
 
   const handleBuyOrEquip = useCallback((skinId: string, price: number, variant: ShipVariant, hull: string, sail: string) => {
@@ -438,7 +675,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     if (owned.has(skinId)) {
       s.currentSkin = skinId;
       AsyncStorage.setItem(CURRENT_SKIN_KEY, skinId).catch(() => {});
-      setFrame((f) => f + 1);
+      setUiEpoch((e) => e + 1);
       return;
     }
     if (s.coinsCollected >= price) {
@@ -448,7 +685,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
       s.currentSkin = skinId;
       AsyncStorage.setItem(OWNED_SKINS_KEY, JSON.stringify(next)).catch(() => {});
       AsyncStorage.setItem(CURRENT_SKIN_KEY, skinId).catch(() => {});
-      setFrame((f) => f + 1);
+      setUiEpoch((e) => e + 1);
     }
   }, []);
 
@@ -460,7 +697,6 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
 
       // If paused or holding finger on ship (freeze), do not advance simulation; just keep the UI responsive
       if (s.paused || s.holdFreeze) {
-        setFrame((f) => f + 1);
         rafRef.current = requestAnimationFrame(loop);
         return;
       }
@@ -468,34 +704,41 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
       const nowPerf = perfNow();
       const dtMs = Math.min(Math.max(nowPerf - lastFramePerfRef.current, 0.001), MAX_DELTA_MS);
       lastFramePerfRef.current = nowPerf;
-      const k = Math.min(dtMs / TARGET_FRAME_MS, MAX_FRAME_SCALE);
 
       const nowTs = Date.now();
+      planSimulationSubsteps(simSubstepBankRef, dtMs, substepKsRef.current);
+      const ks = substepKsRef.current;
+      let fatalDied = false;
+
+      for (let _si = 0; _si < ks.length; _si++) {
+      const k = ks[_si];
       s.runTick += k;
       s.survivalFrames += k;
 
       const elapsedSec = runElapsedSeconds(s.runTick);
-      const diffLevel = runnerDifficultyLevel(elapsedSec);
-      const runnerPhase = runnerPhaseIndex(diffLevel);
+      const zone = getRunnerZoneByDistance(s.runDistance);
+      const patternPhase = patternPhaseFromZoneIndex(zone.index);
+      const coinPatternPhase = coinPatternPhaseFromZone(zone.index, zone.coinRiskMult);
+      const progressScore = Math.floor(s.runDistance) + s.pickupScore;
 
-      const phaseIdxForDanger = runnerPhase;
+      const phaseIdxForDanger = patternPhase;
       const dz = stepDangerZone(
         {
           warnEndAt: s.dangerWarnEndAt,
           burstEndAt: s.dangerBurstEndAt,
           nextEligibleAt: s.dangerNextEligibleAt,
         },
-        { now: nowTs, score: s.score, feverActive: s.feverActive, phaseIndex: phaseIdxForDanger }
+        { now: nowTs, score: progressScore, feverActive: s.feverActive, phaseIndex: phaseIdxForDanger }
       );
       s.dangerWarnEndAt = dz.next.warnEndAt;
       s.dangerBurstEndAt = dz.next.burstEndAt;
       s.dangerNextEligibleAt = dz.next.nextEligibleAt;
-      s.score += dz.clearBonus;
+      s.pickupScore += dz.clearBonus;
 
       const comboTier = survivalComboTier(s.survivalFrames);
       const pressure = resolveRunPressure(
         {
-          score: s.score,
+          score: Math.floor(s.runDistance) + s.pickupScore,
           runTick: s.runTick,
           speed: s.speed,
           now: nowTs,
@@ -505,7 +748,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
           feverMultiplier: s.feverMultiplier,
           survivalComboTier: comboTier,
         },
-        { phaseIndexOverride: runnerPhase }
+        { phaseIndexOverride: patternPhase }
       );
       s.dangerVisual = pressure.dangerVisual;
       const tensionD = pressure.tension01;
@@ -543,41 +786,53 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
 
       const slowMul = nowTs < s.slowTimeUntil ? 0.5 : 1;
       const effObsBase = s.speed * (nowTs < s.boostUntil ? 1.5 : 1) * slowMul * pressure.fallSpeedMul;
-      let nextObstacles = s.obstacles.map((obs) => {
+      const obsArr = s.obstacles;
+      for (let i = 0; i < obsArr.length; i++) {
+        const obs = obsArr[i];
         let verticalSpeed = effObsBase;
         if (obs.type === "fast") verticalSpeed *= 1.25 + tensionD * 0.35;
-        const nextY = obs.y + verticalSpeed * k;
-        let nextX = obs.x;
+        obs.y += verticalSpeed * k;
         if (obs.type === "zigzag") {
           const phase =
             (obs.driftPhase ?? 0) + (0.06 + tensionD * 0.06) * (effObsBase / MAX_SPEED_CAP) * 10 * k;
-          nextX = obs.x + Math.sin(phase) * (2.5 + tensionD * 3.0);
-          return { ...obs, y: nextY, x: nextX, driftPhase: phase };
+          obs.driftPhase = phase;
+          obs.x += Math.sin(phase) * (2.5 + tensionD * 3.0);
         }
-        return { ...obs, y: nextY, x: nextX };
-      });
-      nextObstacles = nextObstacles.filter((obs) => obs.y < SCREEN_HEIGHT + 60);
+      }
+      let oWrite = 0;
+      const obsPool = obstaclePoolRef.current;
+      /** Drop obstacles as soon as nothing is visible below the fold (tighter than coins/powerups). */
+      for (let i = 0; i < obsArr.length; i++) {
+        if (obsArr[i].y < SCREEN_HEIGHT) {
+          if (oWrite !== i) obsArr[oWrite] = obsArr[i];
+          oWrite++;
+        } else {
+          obsPool.release(obsArr[i]);
+        }
+      }
+      obsArr.length = oWrite;
 
-      const patternCoinDrops: CoinItem[] = [];
+      const patternCoinScratch = s.patternCoinScratch;
+      patternCoinScratch.length = 0;
 
       s.spawnCooldown -= k;
       if (s.spawnCooldown <= 0) {
         const burstActive = pressure.dangerBurstActive;
         const phaseMul =
-          DIFFICULTY_PHASES[runnerPhase].spawnIntervalMul * (burstActive ? DANGER_SPAWN_COMPRESSION : 1);
+          DIFFICULTY_PHASES[patternPhase].spawnIntervalMul * (burstActive ? DANGER_SPAWN_COMPRESSION : 1);
         const runnerInt = obstacleSpawnIntervalFrames(elapsedSec);
         const blended = Math.max(
           RUNNER_SPAWN_MIN_INTERVAL_FRAMES,
-          Math.floor(runnerInt * phaseMul)
+          Math.floor((runnerInt * phaseMul) / Math.max(0.55, zone.obstacleRateMult))
         );
         s.spawnCooldown = blended + Math.random() * Math.max(6, blended * 0.14);
 
-        const patternId = pickObstaclePattern(runnerPhase, Math.random);
-        const specs = materializeObstaclePattern(patternId, runnerPhase, Math.random);
+        if (obsArr.length < MAX_ACTIVE_OBSTACLES) {
+        const patternId = pickObstaclePattern(patternPhase, Math.random);
+        const specs = materializeObstaclePattern(patternId, patternPhase, Math.random);
         if (specs.length > 0) s.lastHazardLane = specs[0].lane;
-        const geomSp = laneGeom();
         for (const sp of specs) {
-          obstacleIdRef.current += 1;
+          if (obsArr.length >= MAX_ACTIVE_OBSTACLES) break;
           const baseSize =
             OBSTACLE_SIZE_MIN + Math.random() * (OBSTACLE_SIZE_MAX - OBSTACLE_SIZE_MIN);
           const size = baseSize * (1 + tensionD * 0.18);
@@ -592,17 +847,26 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
                   ? "#ff7b00"
                   : "#9b59ff";
           const width = type === "wide" ? size * (1.22 + tensionD * 0.16) : size;
-          const startX = geomSp.obstacleLeftFromLane(sp.lane, width);
-          nextObstacles.push({
-            id: obstacleIdRef.current,
-            x: startX,
-            y: -size - 20 + sp.yExtra,
-            size: width,
-            type,
-            visual,
-            color,
-            driftPhase: Math.random() * Math.PI * 2,
-          });
+          const { w: visW, h: visH } = obstacleHitSize(visual, width, type === "wide");
+          const rHit = obstacleCollisionRect({ x: 0, y: 0, size: width, type, visual });
+          const startX = LANE_GEOM.obstacleLeftFromLane(sp.lane, visW);
+          const ob = obsPool.acquire();
+          ob.id = allocEntityId();
+          ob.x = startX;
+          ob.y = -size - 20 + sp.yExtra;
+          ob.size = width;
+          ob.type = type;
+          ob.visual = visual;
+          ob.color = color;
+          ob.lane = sp.lane;
+          ob.visW = visW;
+          ob.visH = visH;
+          ob.hitOffX = rHit.x;
+          ob.hitOffY = rHit.y;
+          ob.hitW = rHit.w;
+          ob.hitH = rHit.h;
+          ob.driftPhase = Math.random() * Math.PI * 2;
+          obsArr.push(ob);
         }
 
         if (patternId === "lowBarrierThenCoinTrail" && specs[0]) {
@@ -610,7 +874,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
           const spacing = COIN_SPACING_BASE + s.speed * COIN_SPACING_SPEED_FACTOR;
           const bonus = materializeCoinPattern({
             kind: "straight",
-            phaseIndex: runnerPhase,
+            phaseIndex: coinPatternPhase,
             screenW: SCREEN_WIDTH,
             coinSize: COIN_SIZE,
             playerW: PLAYER_WIDTH,
@@ -620,21 +884,24 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
             laneMargin: LANE_MARGIN,
             rng: Math.random,
           });
+          const cPoolPat = coinPoolRef.current;
           for (let i = 0; i < bonus.length; i++) {
-            obstacleIdRef.current += 1;
-            patternCoinDrops.push({
-              id: obstacleIdRef.current + 200000 + i,
-              x: bonus[i].x,
-              y: bonus[i].y,
-              size: bonus[i].size,
-            });
+            const c = cPoolPat.acquire();
+            c.id = allocEntityId();
+            c.x = bonus[i].x;
+            c.y = bonus[i].y;
+            c.size = bonus[i].size;
+            patternCoinScratch.push(c);
           }
         }
 
-        if (runnerPhase >= 2 && Math.random() < pressure.duoSpawnChance * 0.45) {
-          const extra = materializeObstaclePattern("singleBlock", runnerPhase, Math.random)[0];
+        if (
+          obsArr.length < MAX_ACTIVE_OBSTACLES &&
+          patternPhase >= 2 &&
+          Math.random() < pressure.duoSpawnChance * 0.45 * Math.min(1.2, zone.obstacleRateMult / 1.15)
+        ) {
+          const extra = materializeObstaclePattern("singleBlock", patternPhase, Math.random)[0];
           if (extra) {
-            obstacleIdRef.current += 1;
             const baseSize =
               OBSTACLE_SIZE_MIN + Math.random() * (OBSTACLE_SIZE_MAX - OBSTACLE_SIZE_MIN);
             const size = baseSize * (1 + tensionD * 0.12);
@@ -647,56 +914,93 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
                   : extra.type === "zigzag"
                     ? "#ff7b00"
                     : "#9b59ff";
-            nextObstacles.push({
-              id: obstacleIdRef.current,
-              x: geomSp.obstacleLeftFromLane(extra.lane, width),
-              y: -size - 62,
-              size: width,
-              type: extra.type,
-              visual: extra.visual,
-              color,
-              driftPhase: Math.random() * Math.PI * 2,
-            });
+            const { w: visW2, h: visH2 } = obstacleHitSize(extra.visual, width, extra.type === "wide");
+            const rHit2 = obstacleCollisionRect({ x: 0, y: 0, size: width, type: extra.type, visual: extra.visual });
+            const ob2 = obsPool.acquire();
+            ob2.id = allocEntityId();
+            ob2.x = LANE_GEOM.obstacleLeftFromLane(extra.lane, visW2);
+            ob2.y = -size - 62;
+            ob2.size = width;
+            ob2.type = extra.type;
+            ob2.visual = extra.visual;
+            ob2.color = color;
+            ob2.lane = extra.lane;
+            ob2.visW = visW2;
+            ob2.visH = visH2;
+            ob2.hitOffX = rHit2.x;
+            ob2.hitOffY = rHit2.y;
+            ob2.hitW = rHit2.w;
+            ob2.hitH = rHit2.h;
+            ob2.driftPhase = Math.random() * Math.PI * 2;
+            obsArr.push(ob2);
           }
         }
+        }
+      }
+
+      if (s.nearMissCooldown > 0) {
+        s.nearMissCooldown -= k;
+        if (s.nearMissCooldown < 0) s.nearMissCooldown = 0;
       }
 
       const pLeft = s.playerX;
       const pRight = s.playerX + PLAYER_WIDTH;
       const pTop = SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY + PLAYER_HEIGHT);
       const pBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY);
-      if (s.nearMissCooldown > 0) {
-        s.nearMissCooldown -= k;
-        if (s.nearMissCooldown < 0) s.nearMissCooldown = 0;
-      } else {
+      const canDie = nowTs >= s.hitGraceUntil && nowTs >= s.ghostPhaseUntil;
+      const scanNearMiss = s.nearMissCooldown === 0;
+      const playerLane = nearestLaneIndex(s.playerX);
+      let died = false;
+      if (canDie || scanNearMiss) {
+        let hit = false;
         let nearHit = false;
-        forEachObstacleInVerticalBand(nextObstacles, pTop, pBottom, 110, (obs) => {
-          if (nearHit) return;
-          const { w: ow, h: oh } = obstacleHitSize(obs.visual, obs.size, obs.type === "wide");
-          if (
-            nearMissCheck({
-              pLeft,
-              pRight,
-              pTop,
-              pBottom,
-              oLeft: obs.x,
-              oRight: obs.x + ow,
-              oTop: obs.y,
-              oBottom: obs.y + oh,
-            })
-          ) {
-            s.score += nearMissScore(pressure.phaseIndex);
-            s.feverMeter = feverMeterAddClamped(s.feverMeter, FEVER_METER_PER_NEAR_MISS);
-            s.nearMissCooldown = NEAR_MISS_COOLDOWN_FRAMES;
-            nearHit = true;
+        forEachObstacleInVerticalBand(
+          obsArr,
+          pTop,
+          pBottom,
+          150,
+          (obs) => {
+          if (!obstacleBroadphaseX(obs, pLeft, pRight)) return;
+          if (scanNearMiss && !nearHit) {
+            if (
+              nearMissCheck({
+                pLeft,
+                pRight,
+                pTop,
+                pBottom,
+                oLeft: obs.x,
+                oRight: obs.x + obs.visW,
+                oTop: obs.y,
+                oBottom: obs.y + obs.visH,
+              })
+            ) {
+              const nm = Math.floor(
+                nearMissScore(pressure.phaseIndex) *
+                  pressure.feverScoreMult *
+                  (nowTs < s.x2Until ? 2 : 1)
+              );
+              s.pickupScore += nm;
+              s.feverMeter = feverMeterAddClamped(s.feverMeter, FEVER_METER_PER_NEAR_MISS);
+              s.nearMissCooldown = NEAR_MISS_COOLDOWN_FRAMES;
+              nearHit = true;
+            }
           }
-        });
+          if (canDie && !hit && collides(s.playerY, s.playerX, obs)) {
+            hit = true;
+          }
+        },
+          (obs) => obstacleLaneRelevantForPlayer(obs.lane, obs.type, playerLane)
+        );
+        if (canDie) {
+          died = hit;
+        }
       }
 
       const effSpeed = s.speed * (nowTs < s.boostUntil ? 1.75 : 1) * slowMul * pressure.fallSpeedMul;
-      let nextPowerUps = s.powerUps.map((pu) => {
-        let nx = pu.x;
-        let ny = pu.y + effSpeed * 0.95 * k;
+      const puArr = s.powerUps;
+      for (let i = 0; i < puArr.length; i++) {
+        const pu = puArr[i];
+        pu.y += effSpeed * 0.95 * k;
         if (nowTs < s.magnetUntil) {
           const px = s.playerX + PLAYER_WIDTH / 2;
           const py = SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY + PLAYER_HEIGHT / 2);
@@ -708,23 +1012,36 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
           const radius = 280;
           if (dist < radius) {
             const pull = (1 - dist / radius) * (10.0 + tensionD * 6.0);
-            nx += (dx / dist) * pull * k;
-            ny += (dy / dist) * pull * k;
-            // snap when very close
+            pu.x += (dx / dist) * pull * k;
+            pu.y += (dy / dist) * pull * k;
             if (dist < 20) {
-              nx = px - pu.size / 2;
-              ny = py - pu.size / 2;
+              pu.x = px - pu.size / 2;
+              pu.y = py - pu.size / 2;
             }
           }
         }
-        return { ...pu, x: nx, y: ny };
-      });
-      nextPowerUps = nextPowerUps.filter((pu) => pu.y < SCREEN_HEIGHT + 60);
+      }
+      const powPool = powerPoolRef.current;
+      let puW = 0;
+      for (let i = 0; i < puArr.length; i++) {
+        if (puArr[i].y < SCREEN_HEIGHT + ENTITY_CULL_BELOW_SCREEN_PAD) {
+          if (puW !== i) puArr[puW] = puArr[i];
+          puW++;
+        } else {
+          powPool.release(puArr[i]);
+        }
+      }
+      puArr.length = puW;
 
-      // Move coins and apply magnet attraction as well (include pattern drops from this frame’s obstacle spawn)
-      let nextCoins = [...patternCoinDrops, ...s.coins].map((co) => {
-        let nx = co.x;
-        let ny = co.y + effSpeed * k;
+      const coinArr = s.coins;
+      const cPoolMain = coinPoolRef.current;
+      for (let d = 0; d < patternCoinScratch.length; d++) {
+        if (coinArr.length >= MAX_ACTIVE_COINS) break;
+        coinArr.push(patternCoinScratch[d]);
+      }
+      for (let i = 0; i < coinArr.length; i++) {
+        const co = coinArr[i];
+        co.y += effSpeed * k;
         if (nowTs < s.magnetUntil) {
           const px = s.playerX + PLAYER_WIDTH / 2;
           const py = SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY + PLAYER_HEIGHT / 2);
@@ -736,17 +1053,25 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
           const radius = 320;
           if (dist < radius) {
             const pull = (1 - dist / radius) * (12.0 + tensionD * 6.0);
-            nx += (dx / dist) * pull * k;
-            ny += (dy / dist) * pull * k;
+            co.x += (dx / dist) * pull * k;
+            co.y += (dy / dist) * pull * k;
             if (dist < 24) {
-              nx = px - co.size / 2;
-              ny = py - co.size / 2;
+              co.x = px - co.size / 2;
+              co.y = py - co.size / 2;
             }
           }
         }
-        return { ...co, x: nx, y: ny };
-      });
-      nextCoins = nextCoins.filter((co) => co.y < SCREEN_HEIGHT + 60);
+      }
+      let cKeep = 0;
+      for (let i = 0; i < coinArr.length; i++) {
+        if (coinArr[i].y < SCREEN_HEIGHT + ENTITY_CULL_BELOW_SCREEN_PAD) {
+          if (cKeep !== i) coinArr[cKeep] = coinArr[i];
+          cKeep++;
+        } else {
+          cPoolMain.release(coinArr[i]);
+        }
+      }
+      coinArr.length = cKeep;
 
       s.powerSpawnCooldown -= k;
       if (s.powerSpawnCooldown <= 0) {
@@ -754,25 +1079,29 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
           72,
           Math.floor((125 + Math.random() * 210) * pressure.powerCooldownMul)
         );
-        const type = pickPowerUpKind();
-        const size = POWERUP_WORLD_SIZE;
-        const startX = Math.max(8, Math.min(SCREEN_WIDTH - size - 8, Math.random() * SCREEN_WIDTH));
-        nextPowerUps = [
-          ...nextPowerUps,
-          {
-            id: obstacleIdRef.current + 100000 + Math.floor(Math.random() * 1000),
-            x: startX,
-            y: -size - 12,
-            size,
-            type,
-          },
-        ];
+        if (puArr.length < MAX_ACTIVE_POWERUPS) {
+          const type = pickPowerUpKind();
+          const size = POWERUP_WORLD_SIZE;
+          const startX = Math.max(8, Math.min(SCREEN_WIDTH - size - 8, Math.random() * SCREEN_WIDTH));
+          const pu = powPool.acquire();
+          pu.id = allocEntityId();
+          pu.x = startX;
+          pu.y = -size - 12;
+          pu.size = size;
+          pu.type = type;
+          puArr.push(pu);
+        }
       }
 
-      s.speed = runnerSpeedFromElapsedSec(elapsedSec);
-      s.obstacles = nextObstacles;
-      s.powerUps = nextPowerUps;
-      s.coins = nextCoins;
+      const baseCurve = runnerSpeedFromElapsedSec(elapsedSec);
+      const targetSpeed = Math.min(
+        MAX_SPEED_CAP,
+        Math.max(RUNNER_START_SPEED, baseCurve * zone.speedMult)
+      );
+      const speedLerp = Math.min(1, ZONE_SPEED_LERP * k);
+      s.speed += (targetSpeed - s.speed) * speedLerp;
+      const stepWallMs = stepWallMsForK(k);
+      s.runDistance += s.speed * RUN_DISTANCE_PER_SPEED_SECOND * (stepWallMs / 1000);
 
       if (!s.feverActive) {
         s.feverMeter = feverMeterPassiveTick(s.feverMeter, false, pressure.tension01);
@@ -805,38 +1134,33 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         }
       }
 
-      const baseSpeedFactor = (nowTs < s.boostUntil ? 1.5 : 1) * (s.feverActive ? 1.1 : 1);
-      const scoreBase = s.speed * baseSpeedFactor * 0.35;
-      const mult =
-        (nowTs < s.x2Until ? 2 : 1) * pressure.feverScoreMult * pressure.comboScoreMult;
-      const scoreGain = Math.max(1, Math.floor(scoreBase * mult * k));
-      s.score += scoreGain;
-
-      let died = false;
-      const colTop = SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY + PLAYER_HEIGHT);
-      const colBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY);
-      if (nowTs >= s.hitGraceUntil && nowTs >= s.ghostPhaseUntil) {
-        let hit = false;
-        forEachObstacleInVerticalBand(s.obstacles, colTop, colBottom, 150, (obs) => {
-          if (hit) return;
-          if (collides(s.playerY, s.playerX, obs)) hit = true;
-        });
-        died = hit;
-      }
-
       if (died) {
         // Shield absorbs one hit: clear shield, remove overlapping obstacles, and grant brief invulnerability
         if (nowTs < s.shieldUntil) {
           s.shieldUntil = 0;
           s.hitGraceUntil = nowTs + 600;
-          s.obstacles = s.obstacles.filter((obs) => !collides(s.playerY, s.playerX, obs));
+          const oa = s.obstacles;
+          let ow = 0;
+          for (let i = 0; i < oa.length; i++) {
+            const ob = oa[i];
+            if (collides(s.playerY, s.playerX, ob)) {
+              obsPool.release(ob);
+              continue;
+            }
+            if (ow !== i) oa[ow] = ob;
+            ow++;
+          }
+          oa.length = ow;
           died = false;
         }
       }
+      if (died) fatalDied = true;
 
-      // Collect power-ups
+      // Collect power-ups (compact in place — no per-hit filter allocations)
       const nowPickup = Date.now();
-      for (const pu of s.powerUps) {
+      let puCollectW = 0;
+      for (let pi = 0; pi < s.powerUps.length; pi++) {
+        const pu = s.powerUps[pi];
         if (collidesPower(s.playerY, s.playerX, pu)) {
           const { type } = pu;
           const d = POWERUP_DEFS[type];
@@ -863,28 +1187,38 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
               break;
             case "coinBurst":
               s.coinsCollected += 12 + Math.floor(Math.random() * 9);
-              s.score += 160 + Math.floor(Math.random() * 140);
+              s.pickupScore += Math.floor(
+                (160 + Math.floor(Math.random() * 140)) *
+                  pressure.feverScoreMult *
+                  (nowTs < s.x2Until ? 2 : 1)
+              );
               break;
             default:
               break;
           }
+          getAudioManager().playPowerup();
           s.activatePulseT = 12;
           if (!s.feverActive) {
             s.feverMeter = feverMeterAddClamped(s.feverMeter, FEVER_METER_PER_POWER_PICKUP);
           }
-          nextPowerUps = nextPowerUps.filter((p) => p.id !== pu.id);
+          powPool.release(pu);
+          continue;
         }
+        s.powerUps[puCollectW++] = pu;
       }
-      s.powerUps = nextPowerUps;
+      s.powerUps.length = puCollectW;
 
       s.coinSpawnCooldown -= k;
-      if (s.coinSpawnCooldown <= 0) {
-        s.coinSpawnCooldown = Math.floor((88 + Math.random() * 95) * pressure.coinCooldownMul);
+      if (s.coinSpawnCooldown <= 0 && s.coins.length < MAX_ACTIVE_COINS) {
+        s.coinSpawnCooldown = Math.max(
+          38,
+          Math.floor(((88 + Math.random() * 95) * pressure.coinCooldownMul) / Math.max(0.65, zone.coinRiskMult))
+        );
         const spacing = COIN_SPACING_BASE + s.speed * COIN_SPACING_SPEED_FACTOR;
-        const kind = pickCoinPattern(runnerPhase, Math.random);
+        const kind = pickCoinPattern(coinPatternPhase, Math.random);
         const spawned = materializeCoinPattern({
           kind,
-          phaseIndex: runnerPhase,
+          phaseIndex: coinPatternPhase,
           screenW: SCREEN_WIDTH,
           coinSize: COIN_SIZE,
           playerW: PLAYER_WIDTH,
@@ -894,30 +1228,111 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
           laneMargin: LANE_MARGIN,
           rng: Math.random,
         });
-        const newCoins: CoinItem[] = spawned.map((row, i) => {
-          obstacleIdRef.current += 1;
-          return {
-            id: obstacleIdRef.current + 300000 + i,
-            x: row.x,
-            y: row.y,
-            size: row.size,
-          };
-        });
-        nextCoins = [...nextCoins, ...newCoins];
+        for (let si = 0; si < spawned.length; si++) {
+          if (s.coins.length >= MAX_ACTIVE_COINS) break;
+          const row = spawned[si];
+          const cn = cPoolMain.acquire();
+          cn.id = allocEntityId();
+          cn.x = row.x;
+          cn.y = row.y;
+          cn.size = row.size;
+          s.coins.push(cn);
+        }
       }
 
-      // Collect coins (iterate `nextCoins` — authoritative list for this frame)
-      for (const c of nextCoins) {
+      if (s.coins.length > 24) {
+        dedupeCoinsInPlace(s.coins, (c) => coinPoolRef.current.release(c));
+      }
+
+      let coinCollectW = 0;
+      for (let ci = 0; ci < s.coins.length; ci++) {
+        const c = s.coins[ci];
         if (collidesCoin(s.playerY, s.playerX, c)) {
           s.coinsCollected += 1;
-          s.score += nowTs < s.x2Until ? 40 : 20;
+          getAudioManager().playCoin();
+          const coinPts = Math.floor(
+            (nowTs < s.x2Until ? 40 : 20) * pressure.feverScoreMult * pressure.comboScoreMult
+          );
+          s.pickupScore += coinPts;
           if (!s.feverActive) {
             s.feverMeter = feverMeterAddClamped(s.feverMeter, FEVER_METER_PER_COIN);
           }
-          nextCoins = nextCoins.filter((cc) => cc.id !== c.id);
+          cPoolMain.release(c);
+          continue;
         }
+        s.coins[coinCollectW++] = c;
       }
-      s.coins = nextCoins;
+      s.coins.length = coinCollectW;
+
+      if (fatalDied) break;
+      }
+
+      s.score = Math.floor(s.runDistance) + s.pickupScore;
+
+      const zoneAfterLoop = getRunnerZoneByDistance(s.runDistance);
+      if (zoneAfterLoop.index > s.lastAnnouncedZoneIndex && s.runTick > 12) {
+        s.lastAnnouncedZoneIndex = zoneAfterLoop.index;
+        getAudioManager().playZoneUp();
+        setZoneBanner({ id: nowTs, zoneNumber: zoneAfterLoop.zone });
+      }
+
+      const vis = fillRenderVisible(
+        SCREEN_WIDTH,
+        SCREEN_HEIGHT,
+        s.obstacles,
+        s.coins,
+        s.powerUps,
+        s._visObs,
+        s._visCoins,
+        s._visPow
+      );
+      s._visObsN = vis.obsN;
+      s._visCoinsN = vis.coinN;
+      s._visPowN = vis.powN;
+
+      packVisibleIntoEntityPosSV(
+        s._visObs,
+        s._visObsN,
+        (o) => ({ x: o.x, y: o.y }),
+        obsPosScratchRef,
+        obsAliveRef,
+        obsPositionsSV
+      );
+      packVisibleIntoEntityPosSV(
+        s._visCoins,
+        s._visCoinsN,
+        (c) => ({ x: c.x, y: c.y }),
+        coinPosScratchRef,
+        coinAliveRef,
+        coinPositionsSV
+      );
+      packVisibleIntoEntityPosSV(
+        s._visPow,
+        s._visPowN,
+        (pu) => {
+          const po = powerUpWorldRenderOutset(pu.size);
+          return { x: pu.x - po, y: pu.y - po };
+        },
+        powerPosScratchRef,
+        powerAliveRef,
+        powerPositionsSV
+      );
+
+      const os = visibleEntitySig(s._visObs, s._visObsN);
+      if (os !== obsSigRef.current) {
+        obsSigRef.current = os;
+        setObsRenderSpecs(buildObstacleRenderSpecs(s._visObs, s._visObsN));
+      }
+      const cs = visibleEntitySig(s._visCoins, s._visCoinsN);
+      if (cs !== coinSigRef.current) {
+        coinSigRef.current = cs;
+        setCoinRenderSpecs(buildCoinRenderSpecs(s._visCoins, s._visCoinsN));
+      }
+      const ps = visibleEntitySig(s._visPow, s._visPowN);
+      if (ps !== powSigRef.current) {
+        powSigRef.current = ps;
+        setPowerRenderSpecs(buildPowerRenderSpecs(s._visPow, s._visPowN));
+      }
 
       heroLeftSV.value = s.playerX + (s.shakeT > 0 ? Math.sin(s.shakePhase) * (s.shakeT * 0.4) : 0);
       heroBottomSV.value = GROUND_HEIGHT + s.playerY;
@@ -928,6 +1343,40 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
       heroPulseSV.value =
         1 + (s.activatePulseT > 0 ? Math.sin((12 - s.activatePulseT) * 0.5) * 0.06 : 0);
       heroMagnetYSV.value = nowTs < s.magnetUntil ? Math.sin(s.shakePhase * 0.4) * 1.5 : 0;
+
+      if (nowPerf - lastHudPushRef.current >= HUD_SCORE_THROTTLE_MS) {
+        lastHudPushRef.current = nowPerf;
+        const sc = s.score;
+        const df = Math.floor(s.runDistance);
+        if (sc !== lastHudScoreRef.current || df !== lastHudDistRef.current) {
+          lastHudScoreRef.current = sc;
+          lastHudDistRef.current = df;
+          setRunHud({ score: sc, distanceFloor: df });
+        }
+      }
+
+      const nextBg = getBackgroundImagePhase(Math.floor(s.runDistance));
+      if (nextBg !== bgPhaseRef.current) {
+        bgPhaseRef.current = nextBg;
+        setBgPhase(nextBg);
+      }
+
+      const wx = `${s.dangerVisual}|${s.feverActive ? 1 : 0}`;
+      if (wx !== lastWorldFxKeyRef.current) {
+        lastWorldFxKeyRef.current = wx;
+        setWorldFx({ dangerVisual: s.dangerVisual, feverActive: s.feverActive });
+      }
+
+      let auraMask = 0;
+      if (nowTs < s.shieldUntil) auraMask |= 1;
+      if (nowTs < s.x2Until) auraMask |= 2;
+      if (nowTs < s.magnetUntil) auraMask |= 4;
+      if (nowTs < s.boostUntil) auraMask |= 8;
+      if (nowTs < s.ghostPhaseUntil) auraMask |= 16;
+      if (auraMask !== lastAuraMaskRef.current) {
+        lastAuraMaskRef.current = auraMask;
+        setHeroAuraMask(auraMask);
+      }
 
       let fx = 0;
       if (s.dangerVisual !== "none") fx++;
@@ -946,7 +1395,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         if (DEBUG_PERF_OVERLAY) setPerfStats(st);
       }
 
-      if (died) {
+      if (fatalDied) {
         setGameOver(true);
         const final = s.score;
         setHighScore((prev) => {
@@ -959,7 +1408,6 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         return;
       }
 
-      setFrame((f) => f + 1);
       rafRef.current = requestAnimationFrame(loop);
     };
 
@@ -972,63 +1420,80 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     };
   }, [gameOver]);
 
-  const { playerY, obstacles, score } = sim.current;
+  void uiEpoch;
+
+  const onResponderGrant = useCallback((e: GestureResponderEvent) => {
+    const fingerX = e.nativeEvent.locationX;
+    const fingerY = e.nativeEvent.locationY;
+    const s0 = sim.current;
+    const shipCenter = s0.playerX + PLAYER_WIDTH / 2;
+    touchOffsetRef.current = fingerX - shipCenter;
+    isDraggingRef.current = true;
+    lastFingerXRef.current = fingerX;
+    s0.playerXTarget = clampPlayerLeft(fingerX - touchOffsetRef.current - PLAYER_WIDTH / 2);
+    const shipLeft = s0.playerX;
+    const shipRight = s0.playerX + PLAYER_WIDTH;
+    const shipBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + s0.playerY);
+    const shipTop = shipBottom - PLAYER_HEIGHT;
+    const withinX = fingerX >= shipLeft && fingerX <= shipRight;
+    const withinY = fingerY >= shipTop && fingerY <= shipBottom;
+    if (withinX && withinY) {
+      sim.current.holdFreeze = true;
+    }
+  }, []);
+
+  const onResponderMove = useCallback((e: GestureResponderEvent) => {
+    const x = e.nativeEvent.locationX;
+    if (lastFingerXRef.current == null) {
+      lastFingerXRef.current = x;
+      return;
+    }
+    if (Math.abs(x - lastFingerXRef.current) < FINGER_DEAD_ZONE_PX) {
+      return;
+    }
+    lastFingerXRef.current = x;
+    const desiredCenter = x - touchOffsetRef.current;
+    sim.current.playerXTarget = clampPlayerLeft(desiredCenter - PLAYER_WIDTH / 2);
+  }, []);
+
+  const onResponderRelease = useCallback(() => {
+    isDraggingRef.current = false;
+    lastDragEndMsRef.current = Date.now();
+    sim.current.holdFreeze = false;
+    lastFingerXRef.current = null;
+  }, []);
+
+  const onGameRootLayout = useCallback((e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    if (width <= 0 || height <= 0) return;
+    setGameLayout((prev) => (prev?.w === width && prev?.h === height ? prev : { w: width, h: height }));
+  }, []);
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+      <GameplayReducedMotion />
       <TouchableWithoutFeedback onPress={handleJump}>
-        <View style={styles.gameRoot}>
+        <View style={styles.gameRoot} onLayout={onGameRootLayout}>
           <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
             <AnimatedDayCycleBackground
               style={styles.dayCycleBg}
               parallaxEnabled={false}
               readabilityVignetteEnabled={false}
               visualQualityTier={visualTier}
+              phaseRotation={bgPhase}
+              runSessionKey={runSessionKey}
+              artWidth={gameLayout?.w}
+              artHeight={gameLayout?.h}
             />
           </View>
           <View
             style={styles.container}
             onStartShouldSetResponder={() => true}
-          onResponderGrant={(e) => {
-            const fingerX = e.nativeEvent.locationX;
-            const fingerY = e.nativeEvent.locationY;
-            const s0 = sim.current;
-            const shipCenter = s0.playerX + PLAYER_WIDTH / 2;
-            touchOffsetRef.current = fingerX - shipCenter;
-            isDraggingRef.current = true;
-            lastFingerXRef.current = fingerX;
-            s0.playerXTarget = clampPlayerLeft(fingerX - touchOffsetRef.current - PLAYER_WIDTH / 2);
-            const shipLeft = s0.playerX;
-            const shipRight = s0.playerX + PLAYER_WIDTH;
-            const shipBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + s0.playerY);
-            const shipTop = shipBottom - PLAYER_HEIGHT;
-            const withinX = fingerX >= shipLeft && fingerX <= shipRight;
-            const withinY = fingerY >= shipTop && fingerY <= shipBottom;
-            if (withinX && withinY) {
-              sim.current.holdFreeze = true;
-            }
-          }}
-          onResponderMove={(e) => {
-            const x = e.nativeEvent.locationX;
-            if (lastFingerXRef.current == null) {
-              lastFingerXRef.current = x;
-              return;
-            }
-            if (Math.abs(x - lastFingerXRef.current) < FINGER_DEAD_ZONE_PX) {
-              return;
-            }
-            lastFingerXRef.current = x;
-            const desiredCenter = x - touchOffsetRef.current;
-            sim.current.playerXTarget = clampPlayerLeft(desiredCenter - PLAYER_WIDTH / 2);
-          }}
-          onResponderRelease={() => {
-            isDraggingRef.current = false;
-            lastDragEndMsRef.current = Date.now();
-            sim.current.holdFreeze = false;
-            lastFingerXRef.current = null;
-          }}
+            onResponderGrant={onResponderGrant}
+            onResponderMove={onResponderMove}
+            onResponderRelease={onResponderRelease}
         >
-          {sim.current.dangerVisual === "warn" && visualTier < 4 && (
+          {worldFx.dangerVisual === "warn" && visualTier < 3 && (
             <LinearGradient
               pointerEvents="none"
               colors={["rgba(245,158,11,0.26)", "rgba(245,158,11,0.05)", "transparent"]}
@@ -1037,7 +1502,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
               style={StyleSheet.absoluteFillObject}
             />
           )}
-          {sim.current.dangerVisual === "burst" && visualTier < 4 && (
+          {worldFx.dangerVisual === "burst" && visualTier < 3 && (
             <LinearGradient
               pointerEvents="none"
               colors={["rgba(220,38,38,0.22)", "rgba(220,38,38,0.06)", "transparent"]}
@@ -1046,7 +1511,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
               style={StyleSheet.absoluteFillObject}
             />
           )}
-          {sim.current.feverActive && visualTier < 3 && (
+          {worldFx.feverActive && visualTier < 3 && (
             <LinearGradient
               pointerEvents="none"
               colors={["rgba(236,72,153,0.14)", "transparent", "rgba(251,191,36,0.08)"]}
@@ -1055,7 +1520,19 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
               style={StyleSheet.absoluteFillObject}
             />
           )}
+          <GameRunHud score={runHud.score} distanceFloor={runHud.distanceFloor} />
+          {zoneBanner != null && (
+            <View style={styles.zoneBannerWrap} pointerEvents="none" key={zoneBanner.id}>
+              <View style={styles.zoneBanner}>
+                <Text style={styles.zoneBannerTitle}>Zone {zoneBanner.zoneNumber}</Text>
+                <Text style={styles.zoneBannerSub}>Speed up — stay sharp</Text>
+              </View>
+            </View>
+          )}
+          {/* Lane art sits behind ship and falling entities — was last child and covered the bottom of the screen. */}
+          <SkyLane height={GROUND_HEIGHT} />
           <HeroGameAnchor
+            key={`hero-${runSessionKey}`}
             width={PLAYER_WIDTH}
             height={PLAYER_HEIGHT}
             steerSV={heroSteerSV}
@@ -1065,7 +1542,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
             magnetYSV={heroMagnetYSV}
             qualityTier={visualTier}
           >
-            {Date.now() < sim.current.shieldUntil && (
+            {(heroAuraMask & 1) !== 0 && (
               <View
                 pointerEvents="none"
                 style={{
@@ -1081,7 +1558,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
                 }}
               />
             )}
-            {Date.now() < sim.current.x2Until && (
+            {(heroAuraMask & 2) !== 0 && (
               <View
                 pointerEvents="none"
                 style={{
@@ -1096,7 +1573,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
                 }}
               />
             )}
-            {Date.now() < sim.current.magnetUntil && (
+            {(heroAuraMask & 4) !== 0 && (
               <View
                 pointerEvents="none"
                 style={{
@@ -1111,7 +1588,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
                 }}
               />
             )}
-            {Date.now() < sim.current.boostUntil && (
+            {(heroAuraMask & 8) !== 0 && (
               <View
                 pointerEvents="none"
                 style={{
@@ -1126,7 +1603,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
                 }}
               />
             )}
-            {Date.now() < sim.current.ghostPhaseUntil && (
+            {(heroAuraMask & 16) !== 0 && (
               <View
                 pointerEvents="none"
                 style={{
@@ -1159,40 +1636,30 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
             controlButtonStyle={styles.controlButton}
             controlTextStyle={styles.controlText}
           />
-          {obstacles.map((obs) => {
-            const { w, h } = obstacleHitSize(obs.visual, obs.size, obs.type === "wide");
-            return (
-              <GameObstacle
-                key={obs.id}
-                visual={obs.visual}
-                width={w}
-                height={h}
-                visualTier={visualTier}
-                style={{ left: obs.x, top: obs.y }}
-              />
-            );
-          })}
-
-          {sim.current.coins.map((co) => (
-            <Coin key={co.id} size={co.size} style={{ left: co.x, top: co.y }} />
-          ))}
-
-          {sim.current.powerUps.map((pu) => (
-            <PowerUp key={pu.id} kind={pu.type} size={pu.size} style={{ left: pu.x, top: pu.y }} />
-          ))}
-
-          <HitboxDebugOverlay
-            screenHeight={SCREEN_HEIGHT}
-            groundHeight={GROUND_HEIGHT}
-            playerX={sim.current.playerX}
-            playerY={sim.current.playerY}
-            playerWidth={PLAYER_WIDTH}
-            playerHeight={PLAYER_HEIGHT}
-            obstacles={sim.current.obstacles}
+          <WorldEntityLayer
+            key={`world-${runSessionKey}`}
+            obstacleSpecs={obsRenderSpecs}
+            coinSpecs={coinRenderSpecs}
+            powerSpecs={powerRenderSpecs}
+            obsPositions={obsPositionsSV}
+            coinPositions={coinPositionsSV}
+            powerPositions={powerPositionsSV}
+            visualTier={visualTier}
           />
 
+          {HITBOX_OVERLAY_ENABLED ? (
+            <HitboxDebugOverlay
+              screenHeight={SCREEN_HEIGHT}
+              groundHeight={GROUND_HEIGHT}
+              playerX={sim.current.playerX}
+              playerY={sim.current.playerY}
+              playerWidth={PLAYER_WIDTH}
+              playerHeight={PLAYER_HEIGHT}
+              obstacles={sim.current.obstacles}
+            />
+          ) : null}
+
           <ActivePowerUpsHud
-            now={Date.now()}
             shieldUntil={sim.current.shieldUntil}
             multiplierUntil={sim.current.x2Until}
             magnetUntil={sim.current.magnetUntil}
@@ -1202,24 +1669,48 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
           />
           <PowerPickupFlash kind={sim.current.pickupFlashKind} token={sim.current.pickupFlashToken} />
 
-          <SkyLane height={GROUND_HEIGHT} />
-
           {gameOver && (
             <View style={styles.overlay} pointerEvents="auto">
               <View style={styles.card}>
                 <Text style={styles.gameOverTitle}>Game Over</Text>
-                <Text style={styles.finalScore}>{score.toLocaleString()}</Text>
-                <Text style={styles.coinsSummary}>Coins {sim.current.coinsCollected.toLocaleString()}</Text>
+                <Text style={styles.gameOverTotalLabel}>Total score</Text>
+                <Text style={styles.finalScore}>{sim.current.score.toLocaleString()}</Text>
+                <View style={styles.gameOverStats}>
+                  <View style={styles.gameOverStatRow}>
+                    <Text style={styles.gameOverStatLabel}>Distance</Text>
+                    <Text style={styles.gameOverStatValue}>
+                      {Math.floor(sim.current.runDistance).toLocaleString()} m
+                    </Text>
+                  </View>
+                  <View style={styles.gameOverStatRow}>
+                    <Text style={styles.gameOverStatLabel}>Coins collected</Text>
+                    <Text style={styles.gameOverStatValue}>
+                      {sim.current.coinsCollected.toLocaleString()}
+                    </Text>
+                  </View>
+                  <View style={styles.gameOverStatRow}>
+                    <Text style={styles.gameOverStatLabel}>Bonus points</Text>
+                    <Text style={styles.gameOverStatValue}>
+                      +{sim.current.pickupScore.toLocaleString()}
+                    </Text>
+                  </View>
+                </View>
                 <View style={styles.gameOverActions}>
                   <Pressable
                     style={({ pressed }) => [styles.gameOverButton, styles.gameOverButtonPrimary, { opacity: pressed ? 0.9 : 1 }]}
-                    onPress={handleRetry}
+                    onPress={() => {
+                      getAudioManager().playButtonTap();
+                      handleRetry();
+                    }}
                   >
                     <Text style={styles.gameOverButtonTextPrimary}>Retry</Text>
                   </Pressable>
                   <Pressable
                     style={({ pressed }) => [styles.gameOverButton, styles.gameOverButtonSecondary, { opacity: pressed ? 0.88 : 1 }]}
-                    onPress={handleExitToHome}
+                    onPress={() => {
+                      getAudioManager().playButtonTap();
+                      handleExitToHome();
+                    }}
                   >
                     <Text style={styles.gameOverButtonTextSecondary}>Home</Text>
                   </Pressable>
@@ -1241,11 +1732,28 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
 
 export default function App() {
   const [showHome, setShowHome] = useState(true);
+
+  useEffect(() => {
+    const a = getAudioManager();
+    void a.preload().then(() => {
+      if (showHome) {
+        a.playMenuMusic();
+      } else {
+        a.stopMenuMusic();
+      }
+    });
+  }, [showHome]);
+
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider style={{ flex: 1, backgroundColor: "transparent" }}>
       <AppStatusBar />
       {showHome ? (
-        <HomeScreen onPlay={() => setShowHome(false)} />
+        <HomeScreen
+          onPlay={() => {
+            getAudioManager().playButtonTap();
+            setShowHome(false);
+          }}
+        />
       ) : (
         <GameScreen onExitToHome={() => setShowHome(true)} />
       )}
@@ -1272,7 +1780,37 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "transparent",
-    overflow: "hidden",
+    /** Allow obstacle art / motion to paint outside the flex box (child views use `overflow: "visible"` too). */
+    overflow: "visible",
+  },
+  zoneBannerWrap: {
+    position: "absolute",
+    top: "18%",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 25,
+  },
+  zoneBanner: {
+    paddingHorizontal: scale(20),
+    paddingVertical: heightPixel(10),
+    borderRadius: scale(14),
+    backgroundColor: "rgba(15,23,42,0.88)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(56,189,248,0.55)",
+  },
+  zoneBannerTitle: {
+    fontSize: fontPixel(20),
+    fontWeight: "800",
+    color: "#e0f2fe",
+    textAlign: "center",
+  },
+  zoneBannerSub: {
+    marginTop: 4,
+    fontSize: fontPixel(12),
+    fontWeight: "600",
+    color: "rgba(148,163,184,0.95)",
+    textAlign: "center",
   },
   skyTop: {
     position: "absolute",
@@ -1478,17 +2016,44 @@ const styles = StyleSheet.create({
     marginBottom: heightPixel(8),
     fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
   },
+  gameOverTotalLabel: {
+    fontSize: fontPixel(11),
+    letterSpacing: scale(2),
+    color: "rgba(255,255,255,0.45)",
+    marginBottom: heightPixel(4),
+    textTransform: "uppercase",
+    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
+  },
   finalScore: {
     fontSize: fontPixel(40),
     fontWeight: "300",
     color: "#f4f7ff",
-    marginBottom: heightPixel(16),
+    marginBottom: heightPixel(18),
     fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
   },
-  coinsSummary: {
-    fontSize: fontPixel(16),
-    color: "rgba(255,255,255,0.85)",
-    marginBottom: heightPixel(20),
+  gameOverStats: {
+    width: "100%",
+    maxWidth: scale(280),
+    marginBottom: heightPixel(22),
+    paddingTop: heightPixel(14),
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(255,255,255,0.12)",
+  },
+  gameOverStatRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: heightPixel(6),
+  },
+  gameOverStatLabel: {
+    fontSize: fontPixel(14),
+    color: "rgba(255,255,255,0.55)",
+    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
+  },
+  gameOverStatValue: {
+    fontSize: fontPixel(15),
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.92)",
     fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
   },
   gameOverActions: {

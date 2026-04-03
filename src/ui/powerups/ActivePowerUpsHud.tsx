@@ -1,4 +1,4 @@
-import React, { memo, useMemo } from "react";
+import React, { memo, useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { fontPixel, heightPixel, scale } from "../../../utils/responsive";
 import type { PowerUpKind } from "../../game/powers";
@@ -13,7 +13,6 @@ export type ActivePowerSlot = {
 };
 
 export type ActivePowerUpsHudProps = {
-  now: number;
   shieldUntil: number;
   multiplierUntil: number;
   magnetUntil: number;
@@ -44,12 +43,24 @@ function buildSlots(props: ActivePowerUpsHudProps, now: number): ActivePowerSlot
   return out;
 }
 
+const HUD_NOW_INTERVAL_MS = 200;
+
+function useHudClock(stepMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), stepMs);
+    return () => clearInterval(id);
+  }, [stepMs]);
+  return now;
+}
+
 function ActivePowerUpsHudInner(props: ActivePowerUpsHudProps) {
   const { width } = useWindowDimensions();
+  const now = useHudClock(HUD_NOW_INTERVAL_MS);
   const slots = useMemo(
-    () => buildSlots(props, props.now),
+    () => buildSlots(props, now),
     [
-      props.now,
+      now,
       props.shieldUntil,
       props.multiplierUntil,
       props.magnetUntil,
@@ -85,7 +96,7 @@ function ActivePowerUpsHudInner(props: ActivePowerUpsHudProps) {
               </View>
             </View>
             <Text style={styles.timerText} numberOfLines={1}>
-              {Math.max(0, Math.ceil((s.endsAt - props.now) / 1000))}s
+              {Math.max(0, Math.ceil((s.endsAt - now) / 1000))}s
             </Text>
           </View>
         );

@@ -1,8 +1,7 @@
 package com.stackhouse
 
-import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
-import androidx.core.view.WindowCompat
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -13,10 +12,11 @@ class MainActivity : ReactActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    // Draw content under system bars; pairs with transparent statusBarColor in styles + RN StatusBar.
-    WindowCompat.setDecorFitsSystemWindows(window, false)
-    window.statusBarColor = Color.TRANSPARENT
-    window.navigationBarColor = Color.TRANSPARENT
+    // `edgeToEdgeEnabled=true` in gradle.properties makes ReactActivityDelegate call enableEdgeToEdge().
+    // Keep only overrides RN does not set: no light scrim on the nav bar for a cleaner blend with the game.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      window.isNavigationBarContrastEnforced = false
+    }
   }
 
   /**

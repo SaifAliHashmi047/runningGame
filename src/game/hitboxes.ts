@@ -4,6 +4,7 @@ import {
   DEBUG_DRAW_VISUAL_BOUNDS,
   MIN_COLLISION_DIMENSION_PX,
   OBSTACLE_HITBOX_INSETS,
+  OBSTACLE_VISUAL_SCALE,
   PLAYER_HITBOX_INSETS,
   type ObstacleHitboxInsets,
 } from "./hitboxConfig";
@@ -29,18 +30,31 @@ export type ObstacleHitboxInput = {
  */
 export function obstacleVisualSize(visual: ObstacleVisual, size: number, typeWide: boolean): { w: number; h: number } {
   const wide = typeWide ? 1.45 : 1;
+  const s = OBSTACLE_VISUAL_SCALE;
+  let w: number;
+  let h: number;
   switch (visual) {
     case "laser":
-      return { w: size * wide, h: Math.max(26, size * 0.36) };
+      w = size * wide;
+      h = Math.max(26, size * 0.36);
+      break;
     case "mine":
-      return { w: size * 0.92 * wide, h: size * 0.95 };
+      w = size * 0.92 * wide;
+      h = size * 0.95;
+      break;
     case "drone":
-      return { w: size * wide, h: Math.max(34, size * 0.65) };
+      w = size * wide;
+      h = Math.max(34, size * 0.65);
+      break;
     case "crystal":
-      return { w: size * 0.9 * wide, h: size * 1.18 };
+      w = size * 0.9 * wide;
+      h = size * 1.18;
+      break;
     default:
-      return { w: size * wide, h: size };
+      w = size * wide;
+      h = size;
   }
+  return { w: Math.round(w * s), h: Math.round(h * s) };
 }
 
 /** @deprecated Use `obstacleVisualSize` — same function, clearer name. */
@@ -52,11 +66,16 @@ export const obstacleHitSize = obstacleVisualSize;
 export function obstacleCollisionRect(obs: ObstacleHitboxInput): { x: number; y: number; w: number; h: number } {
   const { w: vw, h: vh } = obstacleVisualSize(obs.visual, obs.size, obs.type === "wide");
   const ins = OBSTACLE_HITBOX_INSETS[obs.visual];
-  const w = Math.max(MIN_COLLISION_DIMENSION_PX, vw - ins.left - ins.right);
-  const h = Math.max(MIN_COLLISION_DIMENSION_PX, vh - ins.top - ins.bottom);
+  const sc = OBSTACLE_VISUAL_SCALE;
+  const il = Math.round(ins.left * sc);
+  const ir = Math.round(ins.right * sc);
+  const it = Math.round(ins.top * sc);
+  const ib = Math.round(ins.bottom * sc);
+  const w = Math.max(MIN_COLLISION_DIMENSION_PX, vw - il - ir);
+  const h = Math.max(MIN_COLLISION_DIMENSION_PX, vh - it - ib);
   return {
-    x: obs.x + ins.left,
-    y: obs.y + ins.top,
+    x: obs.x + il,
+    y: obs.y + it,
     w,
     h,
   };

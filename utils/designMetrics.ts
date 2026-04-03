@@ -3,7 +3,7 @@ import { Dimensions, PixelRatio } from "react-native";
 /** Baseline design width — keep in sync with `utils/responsive.ts`. */
 export const BASE_WIDTH = 375;
 /** Baseline design height — keep in sync with `utils/responsive.ts`. */
-export const BASE_HEIGHT = 812;
+export const BASE_HEIGHT = 1050;
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 

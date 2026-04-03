@@ -24,7 +24,7 @@ type Props = {
   qualityTier?: VisualQualityTier;
 };
 
-function HeroHoverShipInner({ style, width = 48, height = 52, steerSV, qualityTier = 0 }: Props) {
+function HeroHoverShipInner({ style, width = 56, height = 60, steerSV, qualityTier = 0 }: Props) {
   const bob = useSharedValue(0);
   const glow = useSharedValue(1);
   const thruster = useSharedValue(1);

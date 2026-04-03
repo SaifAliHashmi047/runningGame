@@ -1,75 +1,28 @@
 <svg width="1080" height="1920" viewBox="0 0 1080 1920" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="sky" x1="540" y1="0" x2="540" y2="1920" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#7DD3FC"/>
-      <stop offset="0.48" stop-color="#BAE6FD"/>
-      <stop offset="1" stop-color="#DFF7FF"/>
-    </linearGradient>
-    <linearGradient id="groundGrad" x1="540" y1="1240" x2="540" y2="1920" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#4F46E5"/>
-      <stop offset="1" stop-color="#1E3A8A"/>
-    </linearGradient>
-    <linearGradient id="hillFar" x1="180" y1="900" x2="920" y2="1280" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#7C8DB9"/>
-      <stop offset="1" stop-color="#52638B"/>
-    </linearGradient>
-    <linearGradient id="hillNear" x1="100" y1="1120" x2="980" y2="1600" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#38BDF8" stop-opacity="0.70"/>
-      <stop offset="1" stop-color="#1E3A8A"/>
-    </linearGradient>
-    <linearGradient id="track" x1="540" y1="1350" x2="540" y2="1920" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#4F46E5" stop-opacity="0.9"/>
-      <stop offset="1" stop-color="#1E3A8A"/>
-    </linearGradient>
-  </defs>
-
-  <rect width="1080" height="1920" fill="url(#sky)"/>
-  <ellipse cx="540" cy="1020" rx="560" ry="260" fill="#FFFFFF" opacity="0.06"/>
-
-  
-        <g opacity="0.98">
-          <circle cx="820" cy="280" r="90" fill="#FDBA74"/>
-          <circle cx="820" cy="280" r="116" fill="#FDBA74" opacity="0.16"/>
-          <circle cx="820" cy="280" r="146" fill="#FDBA74" opacity="0.08"/>
-        </g>
-        
-
-  <g opacity="0.72">
-    <ellipse cx="180" cy="320" rx="120" ry="42" fill="#FFFFFF"/>
-    <ellipse cx="270" cy="320" rx="100" ry="38" fill="#FFFFFF"/>
-    <ellipse cx="760" cy="260" rx="150" ry="48" fill="#FFFFFF"/>
-    <ellipse cx="875" cy="260" rx="116" ry="40" fill="#FFFFFF"/>
-    <ellipse cx="560" cy="410" rx="118" ry="36" fill="#FFFFFF" opacity="0.84"/>
-  </g>
-
-  
-<g opacity="0.22">
-  <rect x="90" y="820" width="70" height="150" rx="8" fill="#FFFFFF"/>
-  <rect x="170" y="770" width="90" height="200" rx="8" fill="#FFFFFF"/>
-  <rect x="280" y="840" width="56" height="130" rx="8" fill="#FFFFFF"/>
-  <rect x="350" y="720" width="110" height="250" rx="8" fill="#FFFFFF"/>
-  <rect x="480" y="800" width="75" height="170" rx="8" fill="#FFFFFF"/>
-  <rect x="575" y="760" width="88" height="210" rx="8" fill="#FFFFFF"/>
-  <rect x="685" y="835" width="60" height="135" rx="8" fill="#FFFFFF"/>
-  <rect x="765" y="700" width="120" height="270" rx="8" fill="#FFFFFF"/>
-  <rect x="905" y="785" width="80" height="185" rx="8" fill="#FFFFFF"/>
+<defs>
+<linearGradient id="a" x1="540" y1="0" x2="540" y2="1920" gradientUnits="userSpaceOnUse"><stop stop-color="#7DD3FC"/><stop offset="1" stop-color="#DFF7FF"/></linearGradient>
+<linearGradient id="b" x1="200" y1="920" x2="880" y2="1260" gradientUnits="userSpaceOnUse"><stop stop-color="#7C8DB9"/><stop offset="1" stop-color="#52638B"/></linearGradient>
+<linearGradient id="c" x1="120" y1="1140" x2="960" y2="1560" gradientUnits="userSpaceOnUse"><stop stop-color="#38BDF8" stop-opacity="0.68"/><stop offset="1" stop-color="#1E3A8A"/></linearGradient>
+<linearGradient id="d" x1="540" y1="1360" x2="540" y2="1920" gradientUnits="userSpaceOnUse"><stop stop-color="#4F46E5" stop-opacity="0.88"/><stop offset="1" stop-color="#1E3A8A"/></linearGradient>
+</defs>
+<rect width="1080" height="1920" fill="url(#a)"/>
+<ellipse cx="540" cy="1020" rx="520" ry="240" fill="#FFF" opacity="0.05"/>
+<circle cx="820" cy="280" r="86" fill="#FDBA74"/>
+<ellipse cx="820" cy="280" rx="128" ry="128" fill="#FDBA74" opacity="0.11"/>
+<ellipse cx="210" cy="315" rx="210" ry="46" fill="#FFF" opacity="0.5"/>
+<ellipse cx="805" cy="268" rx="230" ry="50" fill="#FFF" opacity="0.5"/>
+<ellipse cx="560" cy="405" rx="200" ry="36" fill="#FFF" opacity="0.4"/>
+<g opacity="0.2" fill="#FFF">
+<rect x="110" y="825" width="68" height="158" rx="6"/>
+<rect x="285" y="785" width="82" height="198" rx="6"/>
+<rect x="485" y="805" width="72" height="178" rx="6"/>
+<rect x="675" y="775" width="88" height="208" rx="6"/>
+<rect x="875" y="795" width="70" height="182" rx="6"/>
 </g>
-
-
-  <path d="M0 1020C92 980 180 924 282 938C390 952 448 1015 540 1004C638 992 714 900 816 908C916 916 986 982 1080 1018V1460H0V1020Z" fill="url(#hillFar)"/>
-  <path d="M0 1212C118 1128 236 1110 338 1148C452 1191 520 1265 622 1244C738 1220 802 1100 918 1088C990 1080 1034 1105 1080 1140V1600H0V1212Z" fill="url(#hillNear)"/>
-
-  <path d="M0 1390C160 1328 296 1320 402 1372C496 1418 584 1444 680 1422C778 1398 870 1328 1080 1348V1920H0V1390Z" fill="url(#track)"/>
-
-  <path d="M430 1460L350 1920H730L650 1460H430Z" fill="#F8FAFC" opacity="0.06"/>
-  <path d="M498 1460L470 1920H610L582 1460H498Z" fill="#F8FAFC" opacity="0.05"/>
-
-  <g opacity="0.35">
-    <rect x="220" y="1498" width="8" height="66" rx="4" fill="#F8FAFC"/>
-    <rect x="340" y="1548" width="8" height="74" rx="4" fill="#F8FAFC"/>
-    <rect x="460" y="1600" width="8" height="82" rx="4" fill="#F8FAFC"/>
-    <rect x="612" y="1600" width="8" height="82" rx="4" fill="#F8FAFC"/>
-    <rect x="732" y="1548" width="8" height="74" rx="4" fill="#F8FAFC"/>
-    <rect x="852" y="1498" width="8" height="66" rx="4" fill="#F8FAFC"/>
-  </g>
+<path d="M0 1020C92 980 180 924 282 938C390 952 448 1015 540 1004C638 992 714 900 816 908C916 916 986 982 1080 1018V1460H0V1020Z" fill="url(#b)"/>
+<path d="M0 1212C118 1128 236 1110 338 1148C452 1191 520 1265 622 1244C738 1220 802 1100 918 1088C990 1080 1034 1105 1080 1140V1600H0V1212Z" fill="url(#c)"/>
+<path d="M0 1390C160 1328 296 1320 402 1372C496 1418 584 1444 680 1422C778 1398 870 1328 1080 1348V1920H0V1390Z" fill="url(#d)"/>
+<path d="M430 1460L350 1920H730L650 1460H430Z" fill="#F8FAFC" opacity="0.06"/>
+<path d="M498 1460L470 1920H610L582 1460H498Z" fill="#F8FAFC" opacity="0.05"/>
+<path d="M224 1498v66M344 1548v74M464 1600v82M616 1600v82M736 1548v74M856 1498v66" stroke="#F8FAFC" stroke-width="8" stroke-linecap="round" opacity="0.35"/>
 </svg>

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo } from "react";
 import { Image, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import Animated, {
   Easing,
+  cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -44,12 +45,34 @@ export type AnimatedDayCycleBackgroundProps = {
   readabilityVignetteEnabled?: boolean;
   /** Adaptive: reduce layers / motion on weaker devices (gameplay unchanged). */
   visualQualityTier?: VisualQualityTier;
+  /**
+   * Rotates which SVG is tied to each timeline beat (morning→day→sunset→night).
+   * E.g. `1` starts the cycle on “day” art instead of “morning”. Use with score tiers for different skies without retinting the canvas.
+   */
+  phaseRotation?: number;
+  /** Increment when a run resets so the phase timeline restarts from 0 (avoids stale `progress`). */
+  runSessionKey?: number;
+  /**
+   * Pixel size for rendered SVG layers. When omitted, falls back to {@link useWindowDimensions}.
+   * Pass the same size as your gameplay `View` (e.g. from `onLayout` on the root inside
+   * `SafeAreaView`) so background “slice” scale matches entity coordinates — otherwise art
+   * is laid out for the full window while the game uses the smaller safe-area box and looks shifted.
+   */
+  artWidth?: number;
+  artHeight?: number;
 };
 
 type SvgComponent = React.ComponentType<SvgProps>;
 type BgModule = SvgComponent | number;
 
 const PHASE_BACKGROUNDS: BgModule[] = [BgMorning, BgDay, BgSunset, BgNight];
+
+function rotateBackgroundModules(arr: readonly BgModule[], steps: number): BgModule[] {
+  const n = arr.length;
+  if (n === 0) return [];
+  const k = ((Math.floor(steps) % n) + n) % n;
+  return [...arr.slice(k), ...arr.slice(0, k)];
+}
 
 function DayCycleArt({ Bg, width, height }: { Bg: BgModule; width: number; height: number }) {
   if (typeof Bg === "function") {
@@ -83,6 +106,7 @@ function DayCycleLayer({
   totalMs,
   timing,
   parallaxEnabled,
+  heavyCompositing,
 }: {
   phaseIndex: number;
   Bg: BgModule;
@@ -92,6 +116,8 @@ function DayCycleLayer({
   totalMs: number;
   timing: DayCycleTiming;
   parallaxEnabled: boolean;
+  /** When false, skips expensive offscreen alpha compositing (gameplay tier ≥2). */
+  heavyCompositing: boolean;
 }) {
   const animatedStyle = useAnimatedStyle(() => {
     const u = (progress.value * totalMs) % totalMs;
@@ -117,7 +143,12 @@ function DayCycleLayer({
   });
 
   return (
-    <Animated.View pointerEvents="none" style={[styles.layer, animatedStyle]} needsOffscreenAlphaCompositing collapsable={false}>
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.layer, animatedStyle]}
+      needsOffscreenAlphaCompositing={heavyCompositing}
+      collapsable={false}
+    >
       <DayCycleArt Bg={Bg} width={width} height={height} />
     </Animated.View>
   );
@@ -176,11 +207,25 @@ function AnimatedDayCycleBackground({
   parallaxEnabled = true,
   readabilityVignetteEnabled = true,
   visualQualityTier = 0,
+  phaseRotation = 0,
+  runSessionKey = 0,
+  artWidth,
+  artHeight,
 }: AnimatedDayCycleBackgroundProps) {
-  const { width, height } = useWindowDimensions();
+  const windowDims = useWindowDimensions();
+  const width =
+    artWidth != null && artWidth > 0 && Number.isFinite(artWidth) ? artWidth : windowDims.width;
+  const height =
+    artHeight != null && artHeight > 0 && Number.isFinite(artHeight) ? artHeight : windowDims.height;
   const progress = useSharedValue(0);
   const effectiveParallax = parallaxEnabled && visualQualityTier < 2;
   const effectiveVignette = readabilityVignetteEnabled && visualQualityTier < 1;
+  const heavyCompositing = visualQualityTier < 2;
+
+  const backgrounds = useMemo(
+    () => rotateBackgroundModules(PHASE_BACKGROUNDS, phaseRotation),
+    [phaseRotation]
+  );
 
   const t = useMemo(
     () => ({ ...DEFAULT_DAY_CYCLE_TIMING, ...timingOverrides }),
@@ -201,19 +246,23 @@ function AnimatedDayCycleBackground({
   );
 
   useEffect(() => {
+    cancelAnimation(progress);
     progress.value = 0;
     progress.value = withRepeat(
       withTiming(1, { duration: Math.max(1, totalMs), easing: Easing.linear }),
       -1,
       false
     );
-  }, [progress, totalMs]);
+    return () => {
+      cancelAnimation(progress);
+    };
+  }, [progress, totalMs, phaseRotation, runSessionKey]);
 
   return (
     <View style={[styles.root, style]}>
-      {PHASE_BACKGROUNDS.map((Bg, i) => (
+      {backgrounds.map((Bg, i) => (
         <DayCycleLayer
-          key={i}
+          key={`${phaseRotation}-${i}`}
           phaseIndex={i}
           Bg={Bg}
           width={width}
@@ -222,6 +271,7 @@ function AnimatedDayCycleBackground({
           totalMs={totalMs}
           timing={t}
           parallaxEnabled={effectiveParallax}
+          heavyCompositing={heavyCompositing}
         />
       ))}
 

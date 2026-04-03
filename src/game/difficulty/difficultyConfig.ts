@@ -9,8 +9,7 @@ export type DifficultyPhaseId = "warmup" | "medium" | "hard" | "extreme";
 
 export type ObstacleSpawnType = "block" | "fast" | "wide" | "zigzag";
 
-/** Core run speed — exported for physics that must match. */
-export const BASE_SPEED = 3.5;
+/** Global clamp on scroll / fall tuning. Asymptotic run speed is set in `runner/runnerConfig`. */
 export const MAX_SPEED_CAP = 16.8;
 /** Per-frame base increment before modifiers (small = smooth curve). */
 export const SPEED_RAMP_BASE = 0.00155;
@@ -20,8 +19,8 @@ export const SPEED_MILESTONES = [2500, 6000, 14000, 28000, 52000] as const;
 /** Additive speed at each milestone index (clamp applied later). */
 export const SPEED_MILESTONE_DELTA = [0.42, 0.38, 0.48, 0.52, 0.55] as const;
 
-/** Run time (frames) used to blend “time tension” on top of score phase. */
-export const TIME_TENSION_HALF_LIFE_FRAMES = 4200;
+/** Run time (frames) used to blend “time tension” on top of score phase — higher = slower tension build. */
+export const TIME_TENSION_HALF_LIFE_FRAMES = 5200;
 
 /**
  * Phases: as score rises, spawn pressure and variety increase; rewards tighten slightly in extreme
@@ -50,8 +49,8 @@ export const DIFFICULTY_PHASES: readonly {
     id: "warmup",
     minScore: 0,
     label: "Warmup",
-    spawnIntervalMul: 1.12,
-    duoSpawnBonus: 0.06,
+    spawnIntervalMul: 1.18,
+    duoSpawnBonus: 0.05,
     fallSpeedMul: 1.0,
     speedRampMul: 0.78,
     typeWeights: { block: 0.38, fast: 0.12, wide: 0.22, zigzag: 0.28 },
@@ -60,7 +59,7 @@ export const DIFFICULTY_PHASES: readonly {
   },
   {
     id: "medium",
-    minScore: 3500,
+    minScore: 5800,
     label: "Medium",
     spawnIntervalMul: 0.88,
     duoSpawnBonus: 0.14,
@@ -84,7 +83,7 @@ export const DIFFICULTY_PHASES: readonly {
   },
   {
     id: "extreme",
-    minScore: 26000,
+    minScore: 40000,
     label: "Extreme",
     spawnIntervalMul: 0.58,
     duoSpawnBonus: 0.3,
@@ -105,15 +104,15 @@ export const WORLD_FALL_MULT = 1.28;
 
 /**
  * Obstacle / pickup sizes — design px @ 375w, then scaled to device via `scale`.
- * Slightly reduced vs earlier builds (smaller “wide” feel + smaller power-ups).
+ * Kept smaller for plain-block rendering and clearer lanes.
  */
-export const OBSTACLE_SIZE_MIN = widthDesignScale(66);
-export const OBSTACLE_SIZE_MAX = widthDesignScale(104);
+export const OBSTACLE_SIZE_MIN = widthDesignScale(48);
+export const OBSTACLE_SIZE_MAX = widthDesignScale(76);
 export const POWERUP_WORLD_SIZE = widthDesignScale(44);
 export const COIN_SIZE = widthDesignScale(21);
 
 /** Danger zone: short burst of higher pressure after a clear warning. */
-export const DANGER_MIN_SCORE_TO_START = 1800;
+export const DANGER_MIN_SCORE_TO_START = 3200;
 export const DANGER_WARN_MS = 2200;
 export const DANGER_BURST_MS = 5200;
 export const DANGER_COOLDOWN_MS = 32000;

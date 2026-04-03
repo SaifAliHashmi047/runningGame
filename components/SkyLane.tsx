@@ -5,16 +5,27 @@ import { heightPixel, scale } from "../utils/responsive";
 
 type Props = {
   height: number;
+  /** Score zone — shifts void + neon accents when provided. */
+  voidColors?: readonly [string, string, string];
+  spineColors?: readonly [string, string, string, string];
 };
+
+const DEFAULT_VOID: readonly [string, string, string] = ["#070b14", "#0f1729", "#0c111c"];
+const DEFAULT_SPINE: readonly [string, string, string, string] = [
+  "transparent",
+  "rgba(34,211,238,0.55)",
+  "rgba(139,92,246,0.45)",
+  "transparent",
+];
 
 /**
  * Futuristic energy lane (no water): graded deck, neon spine, side rails, faint depth grid.
  */
-export default function SkyLane({ height }: Props) {
+export default function SkyLane({ height, voidColors = DEFAULT_VOID, spineColors = DEFAULT_SPINE }: Props) {
   return (
     <View style={[styles.root, { height }]} pointerEvents="none">
       <LinearGradient
-        colors={["#070b14", "#0f1729", "#0c111c"]}
+        colors={[...voidColors]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={StyleSheet.absoluteFill}
@@ -55,7 +66,7 @@ export default function SkyLane({ height }: Props) {
 
       {/* Neon spine */}
       <LinearGradient
-        colors={["transparent", "rgba(34,211,238,0.55)", "rgba(139,92,246,0.45)", "transparent"]}
+        colors={[...spineColors]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={styles.spine}

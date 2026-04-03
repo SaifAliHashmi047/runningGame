@@ -19,7 +19,7 @@ export const MAX_FRAME_SCALE = 2.75;
 export const PERF_SAMPLE_WINDOW = 45;
 
 /** How often (ms) to push sampler stats to React for HUD / adaptive tier. */
-export const PERF_UI_REFRESH_MS = 500;
+export const PERF_UI_REFRESH_MS = 720;
 
 /** Enable FPS overlay (also requires `DEBUG_PERF_OVERLAY` true). */
 export const DEBUG_PERF_OVERLAY = __DEV__ && false;

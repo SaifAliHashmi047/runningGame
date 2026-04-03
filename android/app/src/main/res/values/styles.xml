@@ -8,6 +8,8 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <!-- Default window bg is white — without this, the status-bar region stays opaque. -->
+        <item name="android:windowBackground">@android:color/transparent</item>
     </style>
 
 </resources>

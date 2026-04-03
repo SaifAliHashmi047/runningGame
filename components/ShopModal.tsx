@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, StyleSheet, TouchableWithoutFeedback, Modal } from "react-native";
 import Ship, { ShipVariant } from "./Ship";
 import { fontPixel, heightPixel, scale } from "../utils/responsive";
+import { getAudioManager } from "../src/audio";
 
 type Skin = { id: string; name: string; price: number; variant: ShipVariant; hull: string; sail: string };
 
@@ -63,7 +64,13 @@ export default function ShopModal({
                       )}
                     </View>
                     <View style={[controlButtonStyle, { backgroundColor: owned ? "#22c55e" : "#f59e0b" }]}>
-                      <Text onPress={() => onBuyOrEquip(skin.id, skin.price, skin.variant, skin.hull, skin.sail)} style={controlTextStyle}>
+                      <Text
+                        onPress={() => {
+                          getAudioManager().playButtonTap();
+                          onBuyOrEquip(skin.id, skin.price, skin.variant, skin.hull, skin.sail);
+                        }}
+                        style={controlTextStyle}
+                      >
                         {owned ? (equipped ? "Equip✓" : "Equip") : "Buy"}
                       </Text>
                     </View>

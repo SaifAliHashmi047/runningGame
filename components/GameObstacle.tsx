@@ -1,5 +1,5 @@
-import React, { memo, useEffect } from "react";
-import { StyleSheet, type ViewStyle } from "react-native";
+import React, { memo, useEffect, useRef } from "react";
+import { StyleSheet, View, type ViewStyle } from "react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -9,6 +9,7 @@ import Animated, {
   withTiming,
   interpolate,
   cancelAnimation,
+  type SharedValue,
 } from "react-native-reanimated";
 import type { ObstacleVisual } from "../src/game/types";
 import type { VisualQualityTier } from "../src/game/performanceConfig";
@@ -19,6 +20,7 @@ import {
   ObstacleLaserGateSvg,
 } from "../src/game/assets";
 import { GameSvgArt } from "../src/game/svgArt";
+import type { EntityPosMap } from "../src/ui/game/entityPositions";
 
 const SVG_MAP: Record<ObstacleVisual, typeof ObstacleLaserGateSvg> = {
   laser: ObstacleLaserGateSvg,
@@ -34,17 +36,36 @@ type Props = {
   style?: ViewStyle;
   /** Adaptive: 0 full motion, ≥2 minimal UI-thread work. */
   visualTier?: VisualQualityTier;
+  /**
+   * When set with id-keyed positions, layout stays correct while the obstacle list reorders
+   * (array-index + parallel SharedValue updates can desync for a frame and flicker).
+   */
+  entityId?: number;
+  positionsById?: SharedValue<EntityPosMap>;
 };
 
-function GameObstacleInner({ visual, width, height, style, visualTier = 0 }: Props) {
+function GameObstacleInner({
+  visual,
+  width,
+  height,
+  style,
+  visualTier = 0,
+  entityId,
+  positionsById,
+}: Props) {
+  /** Lock motion tier at spawn so perf-adaptive steps do not reset Reanimated cycles mid-fall. */
+  const tierAtSpawnRef = useRef<VisualQualityTier | null>(null);
+  if (tierAtSpawnRef.current === null) {
+    tierAtSpawnRef.current = visualTier;
+  }
   const pulse = useSharedValue(1);
   const spin = useSharedValue(0);
   const bob = useSharedValue(0);
   const wobble = useSharedValue(0);
   const crystalScale = useSharedValue(1);
-
-  const lite = visualTier >= 1;
-  const staticMotion = visualTier >= 2;
+  const motionTier = tierAtSpawnRef.current;
+  const lite = motionTier >= 1;
+  const staticMotion = motionTier >= 2;
 
   useEffect(() => {
     if (staticMotion) {
@@ -115,6 +136,15 @@ function GameObstacleInner({ visual, width, height, style, visualTier = 0 }: Pro
   const wobbleAmpY = lite ? 1.4 : 2;
   const bobAmp = lite ? 1.4 : 2;
 
+  const useSharedLayout = entityId != null && positionsById != null;
+  const layoutFromShared = useAnimatedStyle(() => {
+    if (!useSharedLayout) return {};
+    const id = entityId as number;
+    const p = positionsById!.value[id];
+    if (!p) return { left: -99999, top: -99999 };
+    return { left: p.x, top: p.y };
+  });
+
   const animStyle = useAnimatedStyle(() => {
     if (visual === "laser") {
       return { opacity: pulse.value, transform: [{ scaleY: interpolate(pulse.value, [0.86, 1], [0.97, 1]) }] };
@@ -137,20 +167,42 @@ function GameObstacleInner({ visual, width, height, style, visualTier = 0 }: Pro
 
   const SvgMod = SVG_MAP[visual];
 
-  return (
-    <Animated.View style={[styles.wrap, { width, height }, style, visual === "crystal" ? undefined : animStyle]}>
-      {visual === "crystal" ? (
-        <Animated.View style={[styles.svgInner, animStyle]}>
-          <GameSvgArt module={SvgMod} width={width} height={height} />
-        </Animated.View>
-      ) : (
-        <GameSvgArt module={SvgMod} width={width} height={height} />
-      )}
+  const inner = (
+    <Animated.View
+      style={[
+        { width, height, alignItems: "center", justifyContent: "center", overflow: "visible" },
+        animStyle,
+      ]}
+    >
+      <GameSvgArt module={SvgMod} width={width} height={height} />
     </Animated.View>
+  );
+
+  if (useSharedLayout) {
+    return (
+      <Animated.View style={[styles.wrap, { width, height }, layoutFromShared]}>{inner}</Animated.View>
+    );
+  }
+  return (
+    <View style={[styles.wrap, { width, height }, style]} pointerEvents="none">
+      {inner}
+    </View>
   );
 }
 
 function propsEqual(prev: Props, next: Props): boolean {
+  const prevShared = prev.entityId != null && prev.positionsById != null;
+  const nextShared = next.entityId != null && next.positionsById != null;
+  if (prevShared !== nextShared) return false;
+  if (prevShared) {
+    return (
+      prev.visual === next.visual &&
+      prev.width === next.width &&
+      prev.height === next.height &&
+      prev.entityId === next.entityId &&
+      prev.positionsById === next.positionsById
+    );
+  }
   return (
     prev.visual === next.visual &&
     prev.width === next.width &&
@@ -168,11 +220,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     alignItems: "center",
     justifyContent: "center",
-  },
-  svgInner: {
-    width: "100%",
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center",
+    overflow: "visible",
   },
 });

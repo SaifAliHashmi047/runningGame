@@ -19,28 +19,30 @@ const BarItem = memo(function BarItem({ item, index }: { item: Item; index: numb
   }));
 
   return (
-    <Animated.View entering={enterBottomItem(index)} style={rStyle}>
-      <Pressable
-        onPressIn={() => {
-          press.value = withSpring(1, HOME_SPRING_PRESS);
-        }}
-        onPressOut={() => {
-          press.value = withSpring(0, HOME_SPRING_PRESS);
-        }}
-        onPress={item.onPress}
-        style={({ pressed }) => [
-          styles.item,
-          {
-            paddingHorizontal: scale(12),
-            paddingVertical: heightPixel(11),
-            borderRadius: scale(radius.md),
-            minWidth: scale(76),
-            opacity: pressed ? 0.92 : 1,
-          },
-        ]}
-      >
-        <Text style={[styles.label, { fontSize: fontPixel(11) }]}>{item.label}</Text>
-      </Pressable>
+    <Animated.View entering={enterBottomItem(index)}>
+      <Animated.View style={rStyle}>
+        <Pressable
+          onPressIn={() => {
+            press.value = withSpring(1, HOME_SPRING_PRESS);
+          }}
+          onPressOut={() => {
+            press.value = withSpring(0, HOME_SPRING_PRESS);
+          }}
+          onPress={item.onPress}
+          style={({ pressed }) => [
+            styles.item,
+            {
+              paddingHorizontal: scale(12),
+              paddingVertical: heightPixel(11),
+              borderRadius: scale(radius.md),
+              minWidth: scale(76),
+              opacity: pressed ? 0.92 : 1,
+            },
+          ]}
+        >
+          <Text style={[styles.label, { fontSize: fontPixel(11) }]}>{item.label}</Text>
+        </Pressable>
+      </Animated.View>
     </Animated.View>
   );
 });

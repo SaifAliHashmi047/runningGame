@@ -6,7 +6,6 @@ import type { DifficultyPhaseId, ObstacleSpawnType } from "./difficultyConfig";
 import type { ObstacleVisual } from "../types";
 import { obstacleVisualSize } from "../hitboxes";
 import {
-  BASE_SPEED,
   COMBO_MAX_TIER,
   COMBO_SCORE_MULT_PER_TIER,
   COMBO_SURVIVAL_FRAMES_FOR_TIER,
@@ -52,6 +51,7 @@ import {
   TIME_TENSION_HALF_LIFE_FRAMES,
   WORLD_FALL_MULT,
 } from "./difficultyConfig";
+import { RUNNER_SPEED_PRESSURE_FLOOR } from "../runner/runnerConfig";
 
 export type DangerVisual = "none" | "warn" | "burst";
 
@@ -162,7 +162,7 @@ export function resolveRunPressure(
     Math.max(0, (input.score - phase.minScore) / Math.max(1, 8000 + phaseIndex * 3500))
   );
   const timeT = tensionFromRunTick(input.runTick);
-  const tension01 = Math.min(1, phaseT * 0.72 + timeT * 0.45 + (phaseIndex / 3) * 0.22);
+  const tension01 = Math.min(1, phaseT * 0.64 + timeT * 0.4 + (phaseIndex / 3) * 0.18);
 
   const burstActive =
     input.dangerBurstEndAt > 0 &&
@@ -172,22 +172,26 @@ export function resolveRunPressure(
   if (input.dangerWarnEndAt > 0 && input.now < input.dangerWarnEndAt) dangerVisual = "warn";
   else if (burstActive) dangerVisual = "burst";
 
-  const speedProgress = Math.min(1, Math.max(0, (input.speed - BASE_SPEED) / (MAX_SPEED_CAP - BASE_SPEED)));
+  const denom = Math.max(0.001, MAX_SPEED_CAP - RUNNER_SPEED_PRESSURE_FLOOR);
+  const speedProgress = Math.min(
+    1,
+    Math.max(0, (input.speed - RUNNER_SPEED_PRESSURE_FLOOR) / denom)
+  );
 
   const spawnMul = phase.spawnIntervalMul * (burstActive ? DANGER_SPAWN_COMPRESSION : 1);
   const phaseSpawnMin = Math.max(
     10,
-    Math.floor(SPAWN_INTERVAL_BASE_MIN * spawnMul - tension01 * 13 - speedProgress * 9)
+    Math.floor(SPAWN_INTERVAL_BASE_MIN * spawnMul - tension01 * 11 - speedProgress * 7)
   );
   const phaseSpawnMax = Math.max(
     phaseSpawnMin + 5,
-    Math.floor(SPAWN_INTERVAL_BASE_MAX * spawnMul - tension01 * 15 - speedProgress * 12)
+    Math.floor(SPAWN_INTERVAL_BASE_MAX * spawnMul - tension01 * 13 - speedProgress * 9)
   );
 
   const fallMul =
     WORLD_FALL_MULT *
     phase.fallSpeedMul *
-    (1 + tension01 * 0.12 + speedProgress * 0.1) *
+    (1 + tension01 * 0.1 + speedProgress * 0.08) *
     (burstActive ? DANGER_FALL_MULT : 1) *
     (input.feverActive ? FEVER_WORLD_SPEED_MULT : 1);
 
@@ -197,7 +201,7 @@ export function resolveRunPressure(
     (burstActive ? DANGER_RAMP_MULT : 1) *
     (input.feverActive ? 1.08 : 1);
 
-  const duoBase = 0.12 + tension01 * 0.38 + speedProgress * 0.28;
+  const duoBase = 0.1 + tension01 * 0.34 + speedProgress * 0.22;
   const duoSpawnChance = Math.min(0.75, duoBase + phase.duoSpawnBonus + (burstActive ? 0.15 : 0));
 
   const tier = Math.min(COMBO_MAX_TIER, Math.max(0, input.survivalComboTier));
