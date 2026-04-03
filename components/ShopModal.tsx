@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet, TouchableWithoutFeedback, Modal } from "react-native";
 import Ship, { ShipVariant } from "./Ship";
+import { fontPixel, heightPixel, scale } from "../utils/responsive";
 
 type Skin = { id: string; name: string; price: number; variant: ShipVariant; hull: string; sail: string };
 
@@ -37,19 +38,23 @@ export default function ShopModal({
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Customize Ship</Text>
             <Text style={styles.modalSubTitle}>Coins {formatWithSpaces(coins)}</Text>
-            <View style={{ width: "100%", marginTop: 12 }}>
+            <View style={{ width: "100%", marginTop: heightPixel(12) }}>
               {skins.map((skin) => {
                 const owned = ownedSkins.includes(skin.id);
                 const equipped = currentSkin === skin.id;
                 return (
                   <View key={skin.id} style={styles.shopRow}>
-                    <View style={{ width: 64, height: 48, justifyContent: "center" }}>
+                    <View style={{ width: scale(64), height: heightPixel(48), justifyContent: "center" }}>
                       <Ship style={{ position: "relative", left: 0, bottom: 0 }} variant={skin.variant} hullColor={skin.hull} sailColor={skin.sail} />
                     </View>
-                    <View style={{ flex: 1, paddingHorizontal: 8 }}>
-                      <Text style={{ color: "#fff", fontWeight: "700" }}>{skin.name}</Text>
-                      {!owned && <Text style={{ color: "rgba(255,255,255,0.65)" }}>{formatWithSpaces(skin.price)} coins</Text>}
-                      {owned && <Text style={{ color: "rgba(255,255,255,0.45)" }}>{equipped ? "Equipped" : "Owned"}</Text>}
+                    <View style={{ flex: 1, paddingHorizontal: scale(8) }}>
+                      <Text style={{ color: "#fff", fontWeight: "700", fontSize: fontPixel(15) }}>{skin.name}</Text>
+                      {!owned && (
+                        <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: fontPixel(13) }}>{formatWithSpaces(skin.price)} coins</Text>
+                      )}
+                      {owned && (
+                        <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: fontPixel(12) }}>{equipped ? "Equipped" : "Owned"}</Text>
+                      )}
                     </View>
                     <View style={[controlButtonStyle, { backgroundColor: owned ? "#22c55e" : "#f59e0b" }]}>
                       <Text onPress={() => onBuyOrEquip(skin.id, skin.price, skin.variant, skin.hull, skin.sail)} style={controlTextStyle}>
@@ -60,7 +65,7 @@ export default function ShopModal({
                 );
               })}
             </View>
-            <View style={[controlButtonStyle, { backgroundColor: "#6c5ce7", marginTop: 16 }]}>
+            <View style={[controlButtonStyle, { backgroundColor: "#6c5ce7", marginTop: heightPixel(16) }]}>
               <Text onPress={onClose} style={controlTextStyle}>
                 Close
               </Text>
@@ -89,33 +94,33 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    padding: scale(20),
   },
   modalCard: {
     width: "100%",
-    maxWidth: 420,
-    borderRadius: 18,
+    maxWidth: scale(420),
+    borderRadius: scale(18),
     backgroundColor: "rgba(18,26,42,0.98)",
-    paddingVertical: 18,
-    paddingHorizontal: 16,
-    borderWidth: 1,
+    paddingVertical: heightPixel(18),
+    paddingHorizontal: scale(16),
+    borderWidth: scale(1),
     borderColor: "rgba(255,255,255,0.08)",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
+    shadowOffset: { width: 0, height: scale(10) },
     shadowOpacity: 0.35,
-    shadowRadius: 24,
+    shadowRadius: scale(24),
     elevation: 10,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: fontPixel(18),
     color: "#fff",
     fontWeight: "800",
     letterSpacing: 0.8,
     textAlign: "center",
   },
   modalSubTitle: {
-    marginTop: 4,
-    fontSize: 13,
+    marginTop: heightPixel(4),
+    fontSize: fontPixel(13),
     color: "rgba(255,255,255,0.7)",
     textAlign: "center",
   },
@@ -125,10 +130,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     backgroundColor: "rgba(255,255,255,0.06)",
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    marginTop: 8,
+    paddingVertical: heightPixel(8),
+    paddingHorizontal: scale(10),
+    borderRadius: scale(10),
+    marginTop: heightPixel(8),
   },
 });
 

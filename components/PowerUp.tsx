@@ -1,31 +1,33 @@
-import React from "react";
-import { View, StyleSheet, ViewStyle } from "react-native";
+import React, { memo } from "react";
+import { StyleSheet, View, type ViewStyle } from "react-native";
+import type { PowerUpKind } from "../src/game/powers";
+import { defFor } from "../src/game/powers";
+import PowerUpIcon from "../src/ui/powerups/PowerUpIcon";
+import { scale } from "../utils/responsive";
 
 type Props = {
-  type: "shield" | "x2" | "magnet" | "boost";
+  kind: PowerUpKind;
   size: number;
-  color: string;
   style?: ViewStyle;
 };
 
-export default function PowerUp({ type, size, color, style }: Props) {
+function PowerUpInner({ kind, size, style }: Props) {
+  const def = defFor(kind);
+
+  const pad = Math.round(scale(10) + size * 0.12);
   return (
-    <View style={[styles.wrap, style, { width: size }]}>
-      <View style={[styles.gem, { width: size, height: size, backgroundColor: color }]}>
-        {type === "shield" ? (
-          <View style={styles.shield} />
-        ) : type === "x2" ? (
-          <View style={styles.mult} />
-        ) : type === "magnet" ? (
-          <View style={styles.magnet} />
-        ) : (
-          <View style={styles.boost} />
-        )}
+    <View style={[styles.wrap, style, { width: size + pad * 2, height: size + pad * 2 }]}>
+      <View
+        style={[styles.glow, { width: size + pad * 2 + scale(10), height: size + pad * 2 + scale(10), borderColor: def.accent }]}
+      />
+      <View style={[styles.pedestal, { width: size + scale(12), height: size + scale(12), borderColor: def.ring }]}>
+        <PowerUpIcon kind={kind} size={size} ambient style={{ backgroundColor: "rgba(15,23,42,0.2)" }} />
       </View>
-      <View style={[styles.glow, { width: size + 10, height: size + 10, borderColor: color }]} />
     </View>
   );
 }
+
+export default memo(PowerUpInner);
 
 const styles = StyleSheet.create({
   wrap: {
@@ -33,53 +35,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  gem: {
+  pedestal: {
+    borderRadius: scale(18),
+    borderWidth: scale(1.5),
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: "rgba(0,0,0,0.25)",
+    overflow: "hidden",
   },
   glow: {
     position: "absolute",
     borderRadius: 999,
-    borderWidth: 2,
-    opacity: 0.25,
-  },
-  shield: {
-    width: 16,
-    height: 20,
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
-    borderBottomLeftRadius: 2,
-    borderBottomRightRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.9)",
-  },
-  mult: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.95)",
-  },
-  magnet: {
-    width: 18,
-    height: 18,
-    borderTopLeftRadius: 9,
-    borderTopRightRadius: 9,
-    borderBottomLeftRadius: 4,
-    borderBottomRightRadius: 4,
-    backgroundColor: "rgba(255,255,255,0.95)",
-    transform: [{ rotate: "180deg" }],
-  },
-  boost: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
-    borderBottomWidth: 18,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
-    borderBottomColor: "rgba(255,255,255,0.95)",
+    borderWidth: scale(2),
+    opacity: 0.35,
   },
 });
-

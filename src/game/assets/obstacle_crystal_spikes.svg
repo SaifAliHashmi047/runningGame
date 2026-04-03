@@ -1,0 +1,23 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="cr1" x1="312" y1="222" x2="456" y2="754" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#67E8F9"/>
+    <stop offset="1" stop-color="#2563EB"/>
+  </linearGradient>
+  <linearGradient id="cr2" x1="456" y1="162" x2="610" y2="802" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#C084FC"/>
+    <stop offset="1" stop-color="#7C3AED"/>
+  </linearGradient>
+  <linearGradient id="cr3" x1="612" y1="252" x2="756" y2="782" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#FDA4AF"/>
+    <stop offset="1" stop-color="#E11D48"/>
+  </linearGradient>
+</defs>
+<path d="M260 744L332 252L474 744H260Z" fill="url(#cr1)"/>
+<path d="M404 816L512 164L622 816H404Z" fill="url(#cr2)"/>
+<path d="M584 766L694 282L786 766H584Z" fill="url(#cr3)"/>
+<path d="M260 744L332 252L392 744H260Z" fill="#E0F2FE" opacity="0.28"/>
+<path d="M404 816L512 164L564 816H404Z" fill="#F5F3FF" opacity="0.22"/>
+<path d="M584 766L694 282L736 766H584Z" fill="#FFE4E6" opacity="0.2"/>
+<ellipse cx="520" cy="842" rx="292" ry="42" fill="#38BDF8" opacity="0.12"/>
+</svg>

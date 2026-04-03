@@ -1,0 +1,25 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="bg" x1="66" y1="66" x2="446" y2="446" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#FEF3C7"/>
+    <stop offset="1" stop-color="#FDE68A"/>
+  </linearGradient>
+  <linearGradient id="coin" x1="204" y1="164" x2="308" y2="348" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#FDE047"/>
+    <stop offset="1" stop-color="#F59E0B"/>
+  </linearGradient>
+</defs>
+<circle cx="256" cy="256" r="208" fill="url(#bg)"/>
+<circle cx="256" cy="256" r="182" stroke="#FFFFFF" stroke-opacity="0.72" stroke-width="10"/>
+<circle cx="256" cy="256" r="84" fill="url(#coin)"/>
+<circle cx="256" cy="256" r="58" fill="#FDE68A"/>
+<text x="256" y="276" text-anchor="middle" fill="#92400E" font-family="Verdana, Geneva, sans-serif" font-size="70" font-weight="700">C</text>
+<path d="M256 120V164" stroke="#F59E0B" stroke-width="16" stroke-linecap="round"/>
+<path d="M256 348V392" stroke="#F59E0B" stroke-width="16" stroke-linecap="round"/>
+<path d="M120 256H164" stroke="#F59E0B" stroke-width="16" stroke-linecap="round"/>
+<path d="M348 256H392" stroke="#F59E0B" stroke-width="16" stroke-linecap="round"/>
+<path d="M160 160L192 192" stroke="#F59E0B" stroke-width="16" stroke-linecap="round"/>
+<path d="M320 320L352 352" stroke="#F59E0B" stroke-width="16" stroke-linecap="round"/>
+<path d="M352 160L320 192" stroke="#F59E0B" stroke-width="16" stroke-linecap="round"/>
+<path d="M160 352L192 320" stroke="#F59E0B" stroke-width="16" stroke-linecap="round"/>
+</svg>

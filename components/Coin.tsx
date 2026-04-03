@@ -1,5 +1,6 @@
 import React from "react";
 import { View, StyleSheet, ViewStyle } from "react-native";
+import { scale } from "../utils/responsive";
 
 type Props = {
   size: number;
@@ -25,20 +26,20 @@ const styles = StyleSheet.create({
   },
   coin: {
     backgroundColor: "#facc15",
-    borderWidth: 2,
+    borderWidth: scale(2),
     borderColor: "#eab308",
     alignItems: "center",
     justifyContent: "center",
   },
   inner: {
     backgroundColor: "#fde047",
-    borderWidth: 2,
+    borderWidth: scale(2),
     borderColor: "#f59e0b",
   },
   gloss: {
     position: "absolute",
-    top: 6,
-    left: 8,
+    top: scale(6),
+    left: scale(8),
     backgroundColor: "rgba(255,255,255,0.5)",
   },
 });

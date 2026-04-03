@@ -1,0 +1,41 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGlow" x1="180" y1="140" x2="850" y2="860" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0EA5E9"/>
+      <stop offset="0.5" stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#F97316"/>
+    </linearGradient>
+    <linearGradient id="shipBody" x1="420" y1="260" x2="620" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E2F3FF"/>
+      <stop offset="1" stop-color="#A5D8FF"/>
+    </linearGradient>
+    <linearGradient id="wing" x1="330" y1="470" x2="700" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <radialGradient id="windowGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(512 430) rotate(90) scale(60)">
+      <stop stop-color="#C4F1FF"/>
+      <stop offset="1" stop-color="#0EA5E9"/>
+    </radialGradient>
+    <filter id="softShadow" x="130" y="110" width="764" height="804" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="20" stdDeviation="22" flood-color="#08122E" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <circle cx="512" cy="512" r="330" stroke="url(#bgGlow)" stroke-width="36" opacity="0.85"/>
+    <path d="M792 360C736 286 640 228 520 214" stroke="#38BDF8" stroke-width="18" stroke-linecap="round" opacity="0.75"/>
+    <circle cx="808" cy="360" r="22" fill="#F97316"/>
+    <circle cx="512" cy="512" r="268" fill="#0B1736" opacity="0.16"/>
+
+    <path d="M512 260C586 340 617 443 617 558C617 656 575 735 512 782C449 735 407 656 407 558C407 443 438 340 512 260Z" fill="url(#shipBody)"/>
+    <path d="M407 532L304 640L392 662L434 598L407 532Z" fill="url(#wing)"/>
+    <path d="M617 532L720 640L632 662L590 598L617 532Z" fill="url(#wing)"/>
+    <path d="M459 700L430 804L512 760L594 804L565 700H459Z" fill="#F97316"/>
+    <path d="M469 566H555L530 680H494L469 566Z" fill="#122B65"/>
+    <circle cx="512" cy="430" r="58" fill="url(#windowGlow)"/>
+    <circle cx="512" cy="430" r="34" fill="#E0F2FE" opacity="0.9"/>
+    <path d="M512 282L553 344H471L512 282Z" fill="#F8FAFC"/>
+    <path d="M382 645C432 662 469 687 512 726C555 687 592 662 642 645" stroke="#F8FAFC" stroke-width="20" stroke-linecap="round" opacity="0.8"/>
+  </g>
+</svg>
