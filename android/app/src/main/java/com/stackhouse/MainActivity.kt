@@ -1,11 +1,23 @@
 package com.stackhouse
 
+import android.graphics.Color
+import android.os.Bundle
+import androidx.core.view.WindowCompat
+
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
 
 class MainActivity : ReactActivity() {
+
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
+    // Draw content under system bars; pairs with transparent statusBarColor in styles + RN StatusBar.
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    window.statusBarColor = Color.TRANSPARENT
+    window.navigationBarColor = Color.TRANSPARENT
+  }
 
   /**
    * Returns the name of the main component registered from JavaScript. This is used to schedule

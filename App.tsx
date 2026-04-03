@@ -34,18 +34,16 @@ import { pickPowerUpKind, POWERUP_DEFS } from "./src/game/powers";
 import { ActivePowerUpsHud, PowerPickupFlash } from "./src/ui/powerups";
 import AppStatusBar from "./src/ui/AppStatusBar";
 import {
-  BASE_SPEED,
-  MAX_SPEED_CAP,
   OBSTACLE_SIZE_MIN,
   OBSTACLE_SIZE_MAX,
   POWERUP_WORLD_SIZE,
   COIN_SIZE,
+  MAX_SPEED_CAP,
+  DIFFICULTY_PHASES,
+  DANGER_SPAWN_COMPRESSION,
   createInitialDangerZone,
   stepDangerZone,
   resolveRunPressure,
-  pickWeightedObstacleType,
-  applyNewMilestonesOnly,
-  speedRampStep,
   survivalComboTier,
   nearMissCheck,
   nearMissScore,
@@ -54,17 +52,30 @@ import {
   FEVER_METER_SURVIVAL_CHUNK,
   FEVER_METER_SURVIVAL_CHUNK_FRAMES,
   startFever,
-  pickSpawnX,
-  shouldRejectStackingSpawn,
-  duoSecondX,
   FEVER_METER_MAX,
   FEVER_METER_PER_NEAR_MISS,
   FEVER_METER_PER_COIN,
   FEVER_METER_PER_POWER_PICKUP,
   NEAR_MISS_COOLDOWN_FRAMES,
-  getPhaseIndexForScore,
   type DangerVisual,
 } from "./src/game/difficulty";
+import {
+  COIN_SPACING_BASE,
+  COIN_SPACING_SPEED_FACTOR,
+  RUNNER_LANE_MARGIN,
+  RUNNER_SPAWN_MIN_INTERVAL_FRAMES,
+  RUNNER_START_SPEED,
+} from "./src/game/runner/runnerConfig";
+import { computeLaneGeometry } from "./src/game/runner/lanes";
+import { materializeObstaclePattern, pickObstaclePattern } from "./src/game/runner/obstaclePatterns";
+import { materializeCoinPattern, pickCoinPattern } from "./src/game/runner/coinPatterns";
+import {
+  obstacleSpawnIntervalFrames,
+  runElapsedSeconds,
+  runnerDifficultyLevel,
+  runnerPhaseIndex,
+  runnerSpeedFromElapsedSec,
+} from "./src/game/runner/runnerProgression";
 import {
   DEBUG_PERF_OVERLAY,
   MAX_DELTA_MS,
@@ -106,11 +117,36 @@ const CURRENT_SKIN_KEY = "@stackRunner/currentSkin";
 const GRAVITY = 0.72;
 const JUMP_FORCE = 15;
 const GROUND_HEIGHT = heightPixel(128);
-const PLAYER_X = scale(72);
 const PLAYER_WIDTH = scale(48);
 const PLAYER_HEIGHT = scale(52);
+const PLAYER_START_LANE = 1;
+/** Lane grid — ship starts centered in lane 1 (Subway-style three lanes). */
+const LANE_MARGIN = scale(RUNNER_LANE_MARGIN);
+const laneGeom = () => computeLaneGeometry(SCREEN_WIDTH, PLAYER_WIDTH, LANE_MARGIN);
+const PLAYER_X = laneGeom().playerLeftFromLane(PLAYER_START_LANE);
 
-const OBSTACLE_VISUALS: ObstacleVisual[] = ["laser", "mine", "drone", "crystal"];
+/** Horizontal hero follow — tuned for smooth, non-jittery finger tracking. */
+const FINGER_DEAD_ZONE_PX = 1.15;
+const HERO_FOLLOW_LERP = 0.32;
+const HERO_MAX_STEP_PER_FRAME = scale(38);
+
+function clampPlayerLeft(left: number): number {
+  return Math.max(0, Math.min(SCREEN_WIDTH - PLAYER_WIDTH, left));
+}
+
+function nearestLaneIndex(playerLeft: number): number {
+  const g = laneGeom();
+  let best = 0;
+  let bestD = Infinity;
+  for (let lane = 0; lane < 3; lane++) {
+    const d = Math.abs(playerLeft - g.playerLeftFromLane(lane));
+    if (d < bestD) {
+      bestD = d;
+      best = lane;
+    }
+  }
+  return best;
+}
 
 type ObstacleType = "block" | "fast" | "wide" | "zigzag";
 type Obstacle = {
@@ -170,7 +206,6 @@ type SimState = {
   shopOpen: boolean;
   ownedSkins: string[];
   currentSkin: string;
-  lastSpawnX: number;
   tick: number;
   feverActive: boolean;
   feverMeter: number; // 0..100
@@ -180,7 +215,8 @@ type SimState = {
   feverDurationMs: number;
   /** Authoritative progression / tension systems (see src/game/difficulty). */
   runTick: number;
-  milestoneAppliedCount: number;
+  /** Last obstacle pattern’s primary hazard lane (for risk-reward coin trails). */
+  lastHazardLane: number;
   dangerWarnEndAt: number;
   dangerBurstEndAt: number;
   dangerNextEligibleAt: number;
@@ -210,8 +246,7 @@ function collidesPower(playerY: number, playerX: number, p: PowerUpItem): boolea
   const pRight = playerX + PLAYER_WIDTH;
   const pTop = SCREEN_HEIGHT - (GROUND_HEIGHT + playerY + PLAYER_HEIGHT);
   const pBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + playerY);
-  // Slightly expand pickup hitbox for better feel
-  const pickupPad = 6;
+  const pickupPad = scale(8);
   const oLeft = p.x - pickupPad;
   const oRight = p.x + p.size + pickupPad;
   const oTop = p.y - pickupPad;
@@ -224,7 +259,7 @@ function collidesCoin(playerY: number, playerX: number, c: CoinItem): boolean {
   const pRight = playerX + PLAYER_WIDTH;
   const pTop = SCREEN_HEIGHT - (GROUND_HEIGHT + playerY + PLAYER_HEIGHT);
   const pBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + playerY);
-  const pickupPad = 4;
+  const pickupPad = scale(8);
   const oLeft = c.x - pickupPad;
   const oRight = c.x + c.size + pickupPad;
   const oTop = c.y - pickupPad;
@@ -240,8 +275,8 @@ const initialSim = (): SimState => ({
   obstacles: [],
   powerUps: [],
   coins: [],
-  speed: BASE_SPEED,
-  spawnCooldown: 40,
+  speed: RUNNER_START_SPEED,
+  spawnCooldown: 34,
   powerSpawnCooldown: 100,
   coinSpawnCooldown: 90,
   score: 0,
@@ -263,7 +298,6 @@ const initialSim = (): SimState => ({
   shopOpen: false,
   ownedSkins: ["classic"],
   currentSkin: "classic",
-  lastSpawnX: -999,
   tick: 0,
   feverActive: false,
   feverMeter: 0,
@@ -272,7 +306,7 @@ const initialSim = (): SimState => ({
   feverMultiplier: 1,
   feverDurationMs: 0,
   runTick: 0,
-  milestoneAppliedCount: 0,
+  lastHazardLane: 1,
   ...snapshotDangerFields(),
   survivalFrames: 0,
   lastSurvivalSi: 0,
@@ -297,10 +331,11 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
   const sim = useRef<SimState>(initialSim());
   const obstacleIdRef = useRef(0);
   const rafRef = useRef<number | null>(null);
-  const touchOffsetRef = useRef(0); // finger-to-ship center offset for smooth dragging
   const isDraggingRef = useRef(false);
   const lastDragEndMsRef = useRef(0);
   const lastFingerXRef = useRef<number | null>(null);
+  /** Finger X minus ship center at touch start — prevents snap when touch begins away from hero. */
+  const touchOffsetRef = useRef(0);
   const perfSamplerRef = useRef(new PerfSampler());
   const lastFramePerfRef = useRef(perfNow());
   const lastPerfUiRef = useRef(0);
@@ -358,6 +393,8 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     heroSteerSV.value = 0;
     heroPulseSV.value = 1;
     heroMagnetYSV.value = 0;
+    lastFingerXRef.current = null;
+    touchOffsetRef.current = 0;
     setGameOver(false);
     setPaused(false);
     setPerfStats(null);
@@ -415,20 +452,6 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     }
   }, []);
 
-  const movePlayerToFingerX = useCallback((x: number) => {
-    if (paused || gameOver) return;
-    // Maintain the initial finger-to-ship offset so the ship doesn't snap under the finger
-    const targetCenter = x - touchOffsetRef.current;
-    const clampedCenter = Math.max(PLAYER_WIDTH / 2, Math.min(SCREEN_WIDTH - PLAYER_WIDTH / 2, targetCenter));
-    const targetLeft = clampedCenter - PLAYER_WIDTH / 2;
-    // Directly set position while dragging for maximum accuracy, and also update target for continuity
-    isDraggingRef.current = true;
-    sim.current.playerX = targetLeft;
-    sim.current.playerXTarget = targetLeft;
-    lastFingerXRef.current = x;
-    setFrame((f) => f + 1);
-  }, [paused, gameOver]);
-
   useEffect(() => {
     if (gameOver) return;
 
@@ -451,7 +474,11 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
       s.runTick += k;
       s.survivalFrames += k;
 
-      const phaseIdxForDanger = getPhaseIndexForScore(s.score);
+      const elapsedSec = runElapsedSeconds(s.runTick);
+      const diffLevel = runnerDifficultyLevel(elapsedSec);
+      const runnerPhase = runnerPhaseIndex(diffLevel);
+
+      const phaseIdxForDanger = runnerPhase;
       const dz = stepDangerZone(
         {
           warnEndAt: s.dangerWarnEndAt,
@@ -466,17 +493,20 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
       s.score += dz.clearBonus;
 
       const comboTier = survivalComboTier(s.survivalFrames);
-      const pressure = resolveRunPressure({
-        score: s.score,
-        runTick: s.runTick,
-        speed: s.speed,
-        now: nowTs,
-        dangerWarnEndAt: s.dangerWarnEndAt,
-        dangerBurstEndAt: s.dangerBurstEndAt,
-        feverActive: s.feverActive,
-        feverMultiplier: s.feverMultiplier,
-        survivalComboTier: comboTier,
-      });
+      const pressure = resolveRunPressure(
+        {
+          score: s.score,
+          runTick: s.runTick,
+          speed: s.speed,
+          now: nowTs,
+          dangerWarnEndAt: s.dangerWarnEndAt,
+          dangerBurstEndAt: s.dangerBurstEndAt,
+          feverActive: s.feverActive,
+          feverMultiplier: s.feverMultiplier,
+          survivalComboTier: comboTier,
+        },
+        { phaseIndexOverride: runnerPhase }
+      );
       s.dangerVisual = pressure.dangerVisual;
       const tensionD = pressure.tension01;
 
@@ -487,11 +517,17 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         s.velocity = 0;
       }
 
-      // Smooth horizontal steering toward target
-      const targetX = Math.max(0, Math.min(SCREEN_WIDTH - PLAYER_WIDTH, s.playerXTarget));
-      // If not actively dragging, ease toward target; when dragging we already set exact position
-      if (!isDraggingRef.current) {
-        s.playerX += (targetX - s.playerX) * (1 - Math.pow(1 - 0.35, k));
+      const desiredLeft = clampPlayerLeft(s.playerXTarget);
+      const t = 1 - Math.pow(1 - HERO_FOLLOW_LERP, k);
+      let nextPX = s.playerX + (desiredLeft - s.playerX) * t;
+      const maxStep = HERO_MAX_STEP_PER_FRAME * k;
+      const step = nextPX - s.playerX;
+      if (Math.abs(step) > maxStep) {
+        nextPX = s.playerX + Math.sign(step) * maxStep;
+      }
+      s.playerX = clampPlayerLeft(nextPX);
+      if (!isDraggingRef.current && Math.abs(s.playerXTarget - s.playerX) < 0.4) {
+        s.playerXTarget = s.playerX;
       }
 
       // Update press shake timer
@@ -522,76 +558,106 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
       });
       nextObstacles = nextObstacles.filter((obs) => obs.y < SCREEN_HEIGHT + 60);
 
+      const patternCoinDrops: CoinItem[] = [];
+
       s.spawnCooldown -= k;
       if (s.spawnCooldown <= 0) {
-        const minInt = pressure.spawnMin;
-        const maxInt = pressure.spawnMax;
-        s.spawnCooldown = minInt + Math.random() * Math.max(5, maxInt - minInt);
-        obstacleIdRef.current += 1;
-        const baseSize =
-          OBSTACLE_SIZE_MIN + Math.random() * (OBSTACLE_SIZE_MAX - OBSTACLE_SIZE_MIN);
-        const size = baseSize * (1 + tensionD * 0.22);
-        const type = pickWeightedObstacleType(pressure.phaseIndex, Math.random());
-        const color =
-          type === "fast"
-            ? "#ff3b3b"
-            : type === "wide"
-            ? "#00d4ff"
-            : type === "zigzag"
-            ? "#ff7b00"
-            : "#9b59ff";
-        const visual = OBSTACLE_VISUALS[Math.floor(Math.random() * OBSTACLE_VISUALS.length)];
-        const width = type === "wide" ? size * (1.28 + tensionD * 0.18) : size;
-        let startX = pickSpawnX({
-          width,
-          screenW: SCREEN_WIDTH,
-          playerX: s.playerX,
-          playerW: PLAYER_WIDTH,
-          lastSpawnX: s.lastSpawnX,
-          tension01: tensionD,
-          rng: Math.random,
-        });
-        if (shouldRejectStackingSpawn(startX, width, nextObstacles, 140)) {
-          startX = pickSpawnX({
-            width,
-            screenW: SCREEN_WIDTH,
-            playerX: s.playerX + 80,
-            playerW: PLAYER_WIDTH,
-            lastSpawnX: s.lastSpawnX,
-            tension01: tensionD,
-            rng: Math.random,
-          });
-        }
-        s.lastSpawnX = startX;
-        nextObstacles = [
-          ...nextObstacles,
-          {
+        const burstActive = pressure.dangerBurstActive;
+        const phaseMul =
+          DIFFICULTY_PHASES[runnerPhase].spawnIntervalMul * (burstActive ? DANGER_SPAWN_COMPRESSION : 1);
+        const runnerInt = obstacleSpawnIntervalFrames(elapsedSec);
+        const blended = Math.max(
+          RUNNER_SPAWN_MIN_INTERVAL_FRAMES,
+          Math.floor(runnerInt * phaseMul)
+        );
+        s.spawnCooldown = blended + Math.random() * Math.max(6, blended * 0.14);
+
+        const patternId = pickObstaclePattern(runnerPhase, Math.random);
+        const specs = materializeObstaclePattern(patternId, runnerPhase, Math.random);
+        if (specs.length > 0) s.lastHazardLane = specs[0].lane;
+        const geomSp = laneGeom();
+        for (const sp of specs) {
+          obstacleIdRef.current += 1;
+          const baseSize =
+            OBSTACLE_SIZE_MIN + Math.random() * (OBSTACLE_SIZE_MAX - OBSTACLE_SIZE_MIN);
+          const size = baseSize * (1 + tensionD * 0.18);
+          const type = sp.type;
+          const visual = sp.visual;
+          const color =
+            type === "fast"
+              ? "#ff3b3b"
+              : type === "wide"
+                ? "#00d4ff"
+                : type === "zigzag"
+                  ? "#ff7b00"
+                  : "#9b59ff";
+          const width = type === "wide" ? size * (1.22 + tensionD * 0.16) : size;
+          const startX = geomSp.obstacleLeftFromLane(sp.lane, width);
+          nextObstacles.push({
             id: obstacleIdRef.current,
             x: startX,
-            y: -size - 20,
+            y: -size - 20 + sp.yExtra,
             size: width,
             type,
             visual,
             color,
             driftPhase: Math.random() * Math.PI * 2,
-          },
-        ];
-        const duoRoll = Math.random();
-        if (duoRoll < pressure.duoSpawnChance) {
-          const otherX = duoSecondX(startX, width, SCREEN_WIDTH, Math.random);
-          obstacleIdRef.current += 1;
-          const v2 = OBSTACLE_VISUALS[Math.floor(Math.random() * OBSTACLE_VISUALS.length)];
-          const t2 = pickWeightedObstacleType(pressure.phaseIndex, Math.random());
-          nextObstacles.push({
-            id: obstacleIdRef.current,
-            x: otherX,
-            y: -size - 58,
-            size: width * (0.9 + Math.random() * 0.2),
-            type: t2 === "block" ? "zigzag" : t2,
-            visual: v2,
-            color,
-            driftPhase: Math.random() * Math.PI * 2,
           });
+        }
+
+        if (patternId === "lowBarrierThenCoinTrail" && specs[0]) {
+          const hazardLane = specs[0].lane;
+          const spacing = COIN_SPACING_BASE + s.speed * COIN_SPACING_SPEED_FACTOR;
+          const bonus = materializeCoinPattern({
+            kind: "straight",
+            phaseIndex: runnerPhase,
+            screenW: SCREEN_WIDTH,
+            coinSize: COIN_SIZE,
+            playerW: PLAYER_WIDTH,
+            coinSpacing: spacing * 1.05,
+            preferredLane: (hazardLane + 1) % 3,
+            hazardLane,
+            laneMargin: LANE_MARGIN,
+            rng: Math.random,
+          });
+          for (let i = 0; i < bonus.length; i++) {
+            obstacleIdRef.current += 1;
+            patternCoinDrops.push({
+              id: obstacleIdRef.current + 200000 + i,
+              x: bonus[i].x,
+              y: bonus[i].y,
+              size: bonus[i].size,
+            });
+          }
+        }
+
+        if (runnerPhase >= 2 && Math.random() < pressure.duoSpawnChance * 0.45) {
+          const extra = materializeObstaclePattern("singleBlock", runnerPhase, Math.random)[0];
+          if (extra) {
+            obstacleIdRef.current += 1;
+            const baseSize =
+              OBSTACLE_SIZE_MIN + Math.random() * (OBSTACLE_SIZE_MAX - OBSTACLE_SIZE_MIN);
+            const size = baseSize * (1 + tensionD * 0.12);
+            const width = extra.type === "wide" ? size * (1.2 + tensionD * 0.12) : size;
+            const color =
+              extra.type === "fast"
+                ? "#ff3b3b"
+                : extra.type === "wide"
+                  ? "#00d4ff"
+                  : extra.type === "zigzag"
+                    ? "#ff7b00"
+                    : "#9b59ff";
+            nextObstacles.push({
+              id: obstacleIdRef.current,
+              x: geomSp.obstacleLeftFromLane(extra.lane, width),
+              y: -size - 62,
+              size: width,
+              type: extra.type,
+              visual: extra.visual,
+              color,
+              driftPhase: Math.random() * Math.PI * 2,
+            });
+          }
         }
       }
 
@@ -655,8 +721,8 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
       });
       nextPowerUps = nextPowerUps.filter((pu) => pu.y < SCREEN_HEIGHT + 60);
 
-      // Move coins and apply magnet attraction as well
-      let nextCoins = s.coins.map((co) => {
+      // Move coins and apply magnet attraction as well (include pattern drops from this frame’s obstacle spawn)
+      let nextCoins = [...patternCoinDrops, ...s.coins].map((co) => {
         let nx = co.x;
         let ny = co.y + effSpeed * k;
         if (nowTs < s.magnetUntil) {
@@ -703,10 +769,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         ];
       }
 
-      const stepped = speedRampStep(s.speed, pressure);
-      const ms = applyNewMilestonesOnly(stepped, s.score, s.milestoneAppliedCount);
-      s.speed = ms.speed;
-      s.milestoneAppliedCount = ms.appliedCount;
+      s.speed = runnerSpeedFromElapsedSec(elapsedSec);
       s.obstacles = nextObstacles;
       s.powerUps = nextPowerUps;
       s.coins = nextCoins;
@@ -814,21 +877,33 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
       }
       s.powerUps = nextPowerUps;
 
-      // Spawn coins in small vertical strings and collect
       s.coinSpawnCooldown -= k;
       if (s.coinSpawnCooldown <= 0) {
-        s.coinSpawnCooldown = Math.floor((108 + Math.random() * 110) * pressure.coinCooldownMul);
-        const size = COIN_SIZE;
-        const colX = Math.max(8, Math.min(SCREEN_WIDTH - size - 8, Math.random() * SCREEN_WIDTH));
-        const count = 3 + Math.floor(Math.random() * 4); // 3..6
-        const newCoins: CoinItem[] = Array.from({ length: count }).map((_, i) => ({
-          id: obstacleIdRef.current + 200000 + Math.floor(Math.random() * 1000) + i,
-          x: colX,
-          y: -size - 30 - i * (size + 12),
-          size,
-        }));
+        s.coinSpawnCooldown = Math.floor((88 + Math.random() * 95) * pressure.coinCooldownMul);
+        const spacing = COIN_SPACING_BASE + s.speed * COIN_SPACING_SPEED_FACTOR;
+        const kind = pickCoinPattern(runnerPhase, Math.random);
+        const spawned = materializeCoinPattern({
+          kind,
+          phaseIndex: runnerPhase,
+          screenW: SCREEN_WIDTH,
+          coinSize: COIN_SIZE,
+          playerW: PLAYER_WIDTH,
+          coinSpacing: spacing,
+          preferredLane: nearestLaneIndex(s.playerX),
+          hazardLane: s.lastHazardLane,
+          laneMargin: LANE_MARGIN,
+          rng: Math.random,
+        });
+        const newCoins: CoinItem[] = spawned.map((row, i) => {
+          obstacleIdRef.current += 1;
+          return {
+            id: obstacleIdRef.current + 300000 + i,
+            x: row.x,
+            y: row.y,
+            size: row.size,
+          };
+        });
         nextCoins = [...nextCoins, ...newCoins];
-        s.coins = nextCoins;
       }
 
       // Collect coins (iterate `nextCoins` — authoritative list for this frame)
@@ -846,7 +921,10 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
 
       heroLeftSV.value = s.playerX + (s.shakeT > 0 ? Math.sin(s.shakePhase) * (s.shakeT * 0.4) : 0);
       heroBottomSV.value = GROUND_HEIGHT + s.playerY;
-      heroSteerSV.value = Math.max(-1, Math.min(1, (s.playerXTarget - s.playerX) / 110));
+      heroSteerSV.value = Math.max(
+        -1,
+        Math.min(1, (s.playerXTarget - s.playerX) / Math.max(48, scale(110)))
+      );
       heroPulseSV.value =
         1 + (s.activatePulseT > 0 ? Math.sin((12 - s.activatePulseT) * 0.5) * 0.06 : 0);
       heroMagnetYSV.value = nowTs < s.magnetUntil ? Math.sin(s.shakePhase * 0.4) * 1.5 : 0;
@@ -898,7 +976,6 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <AppStatusBar />
       <TouchableWithoutFeedback onPress={handleJump}>
         <View style={styles.gameRoot}>
           <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
@@ -915,34 +992,40 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
           onResponderGrant={(e) => {
             const fingerX = e.nativeEvent.locationX;
             const fingerY = e.nativeEvent.locationY;
-            // Record offset between finger and current ship center to avoid snapping
-            const shipCenter = sim.current.playerX + PLAYER_WIDTH / 2;
+            const s0 = sim.current;
+            const shipCenter = s0.playerX + PLAYER_WIDTH / 2;
             touchOffsetRef.current = fingerX - shipCenter;
             isDraggingRef.current = true;
             lastFingerXRef.current = fingerX;
-            // If finger starts on ship rect, freeze world scroll while holding
-            const shipLeft = sim.current.playerX;
-            const shipRight = sim.current.playerX + PLAYER_WIDTH;
-            const shipBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + sim.current.playerY);
+            s0.playerXTarget = clampPlayerLeft(fingerX - touchOffsetRef.current - PLAYER_WIDTH / 2);
+            const shipLeft = s0.playerX;
+            const shipRight = s0.playerX + PLAYER_WIDTH;
+            const shipBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + s0.playerY);
             const shipTop = shipBottom - PLAYER_HEIGHT;
-            // locationY is distance from top; check within rect
             const withinX = fingerX >= shipLeft && fingerX <= shipRight;
             const withinY = fingerY >= shipTop && fingerY <= shipBottom;
             if (withinX && withinY) {
               sim.current.holdFreeze = true;
             }
-            movePlayerToFingerX(fingerX);
           }}
           onResponderMove={(e) => {
             const x = e.nativeEvent.locationX;
-            // Ignore tiny jitter
-            if (lastFingerXRef.current != null && Math.abs(x - lastFingerXRef.current) < 1.5) return;
-            movePlayerToFingerX(x);
+            if (lastFingerXRef.current == null) {
+              lastFingerXRef.current = x;
+              return;
+            }
+            if (Math.abs(x - lastFingerXRef.current) < FINGER_DEAD_ZONE_PX) {
+              return;
+            }
+            lastFingerXRef.current = x;
+            const desiredCenter = x - touchOffsetRef.current;
+            sim.current.playerXTarget = clampPlayerLeft(desiredCenter - PLAYER_WIDTH / 2);
           }}
           onResponderRelease={() => {
             isDraggingRef.current = false;
             lastDragEndMsRef.current = Date.now();
             sim.current.holdFreeze = false;
+            lastFingerXRef.current = null;
           }}
         >
           {sim.current.dangerVisual === "warn" && visualTier < 4 && (
@@ -1160,6 +1243,7 @@ export default function App() {
   const [showHome, setShowHome] = useState(true);
   return (
     <SafeAreaProvider>
+      <AppStatusBar />
       {showHome ? (
         <HomeScreen onPlay={() => setShowHome(false)} />
       ) : (

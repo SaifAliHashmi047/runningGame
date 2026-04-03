@@ -14,18 +14,19 @@ export const OBSTACLE_HITBOX_INSETS: Record<
   "laser" | "mine" | "drone" | "crystal",
   ObstacleHitboxInsets
 > = {
-  laser: { top: 8, bottom: 8, left: 12, right: 12 },
-  mine: { top: 14, bottom: 14, left: 14, right: 14 },
-  drone: { top: 10, bottom: 10, left: 16, right: 16 },
-  crystal: { top: 18, bottom: 8, left: 10, right: 10 },
+  /** ~82–88% of visual bounds — forgiving vs art padding. */
+  laser: { top: 10, bottom: 10, left: 15, right: 15 },
+  mine: { top: 17, bottom: 17, left: 17, right: 17 },
+  drone: { top: 13, bottom: 13, left: 19, right: 19 },
+  crystal: { top: 22, bottom: 11, left: 13, right: 13 },
 };
 
 /** Smaller core for the ship — reduces false positives vs obstacle collision insets. */
 export const PLAYER_HITBOX_INSETS: ObstacleHitboxInsets = {
-  top: 6,
-  bottom: 10,
-  left: 8,
-  right: 8,
+  top: 8,
+  bottom: 12,
+  left: 10,
+  right: 10,
 };
 
 export const MIN_COLLISION_DIMENSION_PX = 4;

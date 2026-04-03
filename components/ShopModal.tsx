@@ -29,7 +29,13 @@ export default function ShopModal({
   controlTextStyle,
 }: Props) {
   return (
-    <Modal transparent visible={open} animationType="fade" onRequestClose={onClose}>
+    <Modal
+      transparent
+      statusBarTranslucent
+      visible={open}
+      animationType="fade"
+      onRequestClose={onClose}
+    >
       <View style={styles.modalRoot}>
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={styles.modalBackdrop} />

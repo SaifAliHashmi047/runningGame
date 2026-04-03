@@ -12,8 +12,6 @@ import HomeRewardStrip from "../ui/home/HomeRewardStrip";
 import HomeBottomBar from "../ui/home/HomeBottomBar";
 import { heightPixel, scale } from "../../utils/responsive";
 import { enterHero, enterPlay, enterRings } from "../ui/home/homeMotion";
-import AppStatusBar from "../ui/AppStatusBar";
-
 type Props = {
   onPlay?: () => void;
 };
@@ -47,7 +45,6 @@ export default function HomeScreen({ onPlay }: Props) {
   return (
     <AnimatedDayCycleBackground parallaxEnabled readabilityVignetteEnabled>
       <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-        <AppStatusBar />
         <Animated.View entering={FadeIn.duration(280)} style={[styles.shell, { paddingBottom }]}>
           <View style={[styles.topHud, { paddingTop: heightPixel(10), paddingHorizontal: scale(20) }]}>
             <HomeHudBar highScore={highScore} />

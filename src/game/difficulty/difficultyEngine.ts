@@ -138,18 +138,24 @@ function tensionFromRunTick(runTick: number): number {
   return Math.min(1, Math.max(0, t));
 }
 
-export function resolveRunPressure(input: {
-  score: number;
-  runTick: number;
-  speed: number;
-  now: number;
-  dangerWarnEndAt: number;
-  dangerBurstEndAt: number;
-  feverActive: boolean;
-  feverMultiplier: number;
-  survivalComboTier: number;
-}): ResolvedRunPressure {
-  const phaseIndex = getPhaseIndexForScore(input.score);
+export function resolveRunPressure(
+  input: {
+    score: number;
+    runTick: number;
+    speed: number;
+    now: number;
+    dangerWarnEndAt: number;
+    dangerBurstEndAt: number;
+    feverActive: boolean;
+    feverMultiplier: number;
+    survivalComboTier: number;
+  },
+  opts?: { phaseIndexOverride?: number }
+): ResolvedRunPressure {
+  const phaseIndex =
+    opts?.phaseIndexOverride !== undefined
+      ? Math.min(DIFFICULTY_PHASES.length - 1, Math.max(0, opts.phaseIndexOverride))
+      : getPhaseIndexForScore(input.score);
   const phase = DIFFICULTY_PHASES[phaseIndex];
   const phaseT = Math.min(
     1,
