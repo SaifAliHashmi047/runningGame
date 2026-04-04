@@ -1,12 +1,15 @@
+import type { ObstacleVisual } from "./types";
+
 /**
- * Global scale for obstacle render + collision base box (SVG layout size passed to `GameObstacle`).
+ * Global scale for obstacle render + collision base box (layout size for textures / previews).
  * Insets in `OBSTACLE_HITBOX_INSETS` are multiplied by this in `obstacleCollisionRect`.
  */
-export const OBSTACLE_VISUAL_SCALE = 0.84;
+/** Global scale vs spawn `size` — ~0.9 reads as “medium” next to the hero. */
+export const OBSTACLE_VISUAL_SCALE = 0.9;
 
 /**
  * Tune collision fairness here. Insets shrink the collision AABB **inward** from the visual/render box.
- * Naming matches art: laser gate, hover mine, drone barrier, crystal spikes.
+ * Naming matches PNG art in `src/assets/obstacles/`.
  */
 export type ObstacleHitboxInsets = {
   top: number;
@@ -16,15 +19,11 @@ export type ObstacleHitboxInsets = {
 };
 
 /** Per-visual collision insets (pixels) applied after `obstacleVisualSize` is computed. */
-export const OBSTACLE_HITBOX_INSETS: Record<
-  "laser" | "mine" | "drone" | "crystal",
-  ObstacleHitboxInsets
-> = {
-  /** Tighter than visual — less “invisible” contact around SVG padding. */
-  laser: { top: 15, bottom: 15, left: 22, right: 22 },
-  mine: { top: 26, bottom: 26, left: 26, right: 26 },
-  drone: { top: 19, bottom: 19, left: 28, right: 28 },
-  crystal: { top: 30, bottom: 17, left: 20, right: 20 },
+export const OBSTACLE_HITBOX_INSETS: Record<ObstacleVisual, ObstacleHitboxInsets> = {
+  rock: { top: 10, bottom: 10, left: 8, right: 8 },
+  fireball: { top: 10, bottom: 8, left: 10, right: 10 },
+  roundBomb: { top: 10, bottom: 10, left: 10, right: 10 },
+  aeroBomb: { top: 8, bottom: 10, left: 12, right: 12 },
 };
 
 /** Smaller core for the ship — reduces false positives vs obstacle collision insets. */

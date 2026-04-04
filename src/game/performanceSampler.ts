@@ -20,7 +20,10 @@ export type PerfSamplerStats = {
  * RAF frame-time ring (simple array trim). Optional React refresh for debug HUD.
  */
 export class PerfSampler {
-  private times: number[] = [];
+  /** Ring buffer — avoids O(n) `shift()` every frame when the window is full. */
+  private readonly ring: Float64Array;
+  private ringHead = 0;
+  private ringSize = 0;
   private lastPush = 0;
   private lastT = 0;
   private dropped = 0;
@@ -28,8 +31,13 @@ export class PerfSampler {
   private highLoadStreak = 0;
   private lowLoadStreak = 0;
 
+  constructor() {
+    this.ring = new Float64Array(PERF_SAMPLE_WINDOW);
+  }
+
   reset(): void {
-    this.times = [];
+    this.ringHead = 0;
+    this.ringSize = 0;
     this.lastPush = 0;
     this.lastT = 0;
     this.dropped = 0;
@@ -41,8 +49,13 @@ export class PerfSampler {
   recordFrame(nowMs: number): void {
     if (this.lastT > 0) {
       const dt = nowMs - this.lastT;
-      this.times.push(dt);
-      if (this.times.length > PERF_SAMPLE_WINDOW) this.times.shift();
+      const cap = PERF_SAMPLE_WINDOW;
+      if (this.ringSize < cap) {
+        this.ring[this.ringSize++] = dt;
+      } else {
+        this.ring[this.ringHead] = dt;
+        this.ringHead = (this.ringHead + 1) % cap;
+      }
       if (dt > TARGET_FRAME_MS * 1.75) this.dropped += 1;
     }
     this.lastT = nowMs;
@@ -94,9 +107,14 @@ export class PerfSampler {
   }
 
   private avgMs(): number {
-    if (this.times.length === 0) return TARGET_FRAME_MS;
+    if (this.ringSize === 0) return TARGET_FRAME_MS;
+    const cap = PERF_SAMPLE_WINDOW;
     let s = 0;
-    for (let i = 0; i < this.times.length; i++) s += this.times[i];
-    return s / this.times.length;
+    if (this.ringSize < cap) {
+      for (let i = 0; i < this.ringSize; i++) s += this.ring[i];
+      return s / this.ringSize;
+    }
+    for (let i = 0; i < cap; i++) s += this.ring[(this.ringHead + i) % cap];
+    return s / cap;
   }
 }

@@ -60,6 +60,10 @@ export type AnimatedDayCycleBackgroundProps = {
    */
   artWidth?: number;
   artHeight?: number;
+  /**
+   * Gameplay: one static sky (no 4-layer crossfade / parallax worklets). Home/menu keeps full cycle.
+   */
+  staticSingleLayer?: boolean;
 };
 
 type SvgComponent = React.ComponentType<SvgProps>;
@@ -211,6 +215,7 @@ function AnimatedDayCycleBackground({
   runSessionKey = 0,
   artWidth,
   artHeight,
+  staticSingleLayer = false,
 }: AnimatedDayCycleBackgroundProps) {
   const windowDims = useWindowDimensions();
   const width =
@@ -218,9 +223,11 @@ function AnimatedDayCycleBackground({
   const height =
     artHeight != null && artHeight > 0 && Number.isFinite(artHeight) ? artHeight : windowDims.height;
   const progress = useSharedValue(0);
-  const effectiveParallax = parallaxEnabled && visualQualityTier < 2;
+  /** Tier 1+ drops parallax sooner (gameplay pushes tier from frame times). */
+  const effectiveParallax = parallaxEnabled && visualQualityTier < 1;
   const effectiveVignette = readabilityVignetteEnabled && visualQualityTier < 1;
-  const heavyCompositing = visualQualityTier < 2;
+  /** Tier 1+ skips offscreen alpha compositing on four stacked layers (large GPU win). */
+  const heavyCompositing = visualQualityTier < 1;
 
   const backgrounds = useMemo(
     () => rotateBackgroundModules(PHASE_BACKGROUNDS, phaseRotation),
@@ -246,6 +253,10 @@ function AnimatedDayCycleBackground({
   );
 
   useEffect(() => {
+    if (staticSingleLayer) {
+      cancelAnimation(progress);
+      return;
+    }
     cancelAnimation(progress);
     progress.value = 0;
     progress.value = withRepeat(
@@ -256,7 +267,21 @@ function AnimatedDayCycleBackground({
     return () => {
       cancelAnimation(progress);
     };
-  }, [progress, totalMs, phaseRotation, runSessionKey]);
+  }, [progress, totalMs, phaseRotation, runSessionKey, staticSingleLayer]);
+
+  if (staticSingleLayer) {
+    const Bg = backgrounds[0];
+    return (
+      <View style={[styles.root, style]}>
+        <View style={styles.layer} pointerEvents="none">
+          <DayCycleArt Bg={Bg} width={width} height={height} />
+        </View>
+        <View style={[styles.content, contentStyle]} pointerEvents="box-none">
+          {children}
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.root, style]}>

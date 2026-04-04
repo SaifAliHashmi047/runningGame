@@ -1,6 +1,5 @@
 import React, { useMemo } from "react";
 import { View, Text, StyleSheet, Platform } from "react-native";
-import Animated, { FadeInDown } from "react-native-reanimated";
 import { colors, radius, shadow } from "./theme";
 import { useResponsive } from "./useResponsive";
 import { scale } from "../../../utils/responsive";
@@ -15,8 +14,7 @@ export default function DailyRewardPanel({ streakDays, nextRewardIn }: Props) {
   const boxes = useMemo(() => Array.from({ length: 5 }).map((_, i) => i < (streakDays % 5)), [streakDays]);
 
   return (
-    <Animated.View
-      entering={FadeInDown.duration(500)}
+    <View
       style={[
         styles.root,
         {
@@ -45,7 +43,7 @@ export default function DailyRewardPanel({ streakDays, nextRewardIn }: Props) {
         ))}
       </View>
       <Text style={[styles.timer, { fontSize: fontPixel(11), marginTop: heightPixel(8) }]}>Next in {nextRewardIn}</Text>
-    </Animated.View>
+    </View>
   );
 }
 

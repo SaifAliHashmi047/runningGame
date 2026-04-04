@@ -1,6 +1,5 @@
 import React, { memo } from "react";
 import type { SharedValue } from "react-native-reanimated";
-import type { VisualQualityTier } from "../../game/performanceConfig";
 import type { PowerUpKind } from "../../game/powers";
 import type { EntityPosMap } from "./entityPositions";
 import TrackedObstacle, { type TrackedObstacleSpec } from "./TrackedObstacle";
@@ -17,7 +16,6 @@ type Props = {
   obsPositions: SharedValue<EntityPosMap>;
   coinPositions: SharedValue<EntityPosMap>;
   powerPositions: SharedValue<EntityPosMap>;
-  visualTier: VisualQualityTier;
 };
 
 function WorldEntityLayerInner({
@@ -27,7 +25,6 @@ function WorldEntityLayerInner({
   obsPositions,
   coinPositions,
   powerPositions,
-  visualTier,
 }: Props) {
   return (
     <>
@@ -37,7 +34,7 @@ function WorldEntityLayerInner({
           entityId={o.id}
           visW={o.visW}
           visH={o.visH}
-          color={o.color}
+          visual={o.visual}
           positionsById={obsPositions}
         />
       ))}
@@ -70,7 +67,7 @@ function obstacleSpecsEq(a: readonly TrackedObstacleSpec[], b: readonly TrackedO
   for (let i = 0; i < a.length; i++) {
     const x = a[i];
     const y = b[i];
-    if (x.id !== y.id || x.visW !== y.visW || x.visH !== y.visH || x.color !== y.color) {
+    if (x.id !== y.id || x.visW !== y.visW || x.visH !== y.visH || x.visual !== y.visual) {
       return false;
     }
   }
@@ -92,8 +89,7 @@ function propsEqual(p: Props, n: Props) {
     powerSpecsEq(p.powerSpecs, n.powerSpecs) &&
     p.obsPositions === n.obsPositions &&
     p.coinPositions === n.coinPositions &&
-    p.powerPositions === n.powerPositions &&
-    p.visualTier === n.visualTier
+    p.powerPositions === n.powerPositions
   );
 }
 

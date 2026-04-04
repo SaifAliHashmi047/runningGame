@@ -1,26 +1,31 @@
 import React, { useEffect, useState } from "react";
-import { View, StyleSheet } from "react-native";
-import Animated, { FadeIn } from "react-native-reanimated";
+import { View, StyleSheet, useWindowDimensions } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { HIGH_SCORE_KEY } from "../storage/persistenceKeys";
 import AnimatedDayCycleBackground from "../ui/AnimatedDayCycleBackground";
-import LogoMarkHero from "../ui/home/LogoMarkHero";
+import LogoMark from "../ui/home/LogoMark";
 import PulseRings from "../ui/home/PulseRings";
 import HomePlayButton from "../ui/home/HomePlayButton";
 import HomeHudBar from "../ui/home/HomeHudBar";
 import HomeRewardStrip from "../ui/home/HomeRewardStrip";
 import HomeBottomBar from "../ui/home/HomeBottomBar";
+import HomeStatsModal from "../ui/home/HomeStatsModal";
+import { HomeScreenBanner } from "../ads";
 import { heightPixel, scale } from "../../utils/responsive";
-import { enterHero, enterPlay, enterRings } from "../ui/home/homeMotion";
+import { getAudioManager } from "../audio";
 type Props = {
   onPlay?: () => void;
+  onOpenShop?: () => void;
+  coins?: number;
 };
 
-const HIGH_SCORE_KEY = "@stackRunner/highScore";
-
-export default function HomeScreen({ onPlay }: Props) {
+export default function HomeScreen({ onPlay, onOpenShop, coins = 0 }: Props) {
+  const { width: winW } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const logoSize = Math.min(scale(220), winW - scale(48));
   const [highScore, setHighScore] = useState(0);
+  const [statsOpen, setStatsOpen] = useState(false);
 
   const paddingBottom = insets.bottom + heightPixel(32);
 
@@ -45,37 +50,49 @@ export default function HomeScreen({ onPlay }: Props) {
   return (
     <AnimatedDayCycleBackground parallaxEnabled readabilityVignetteEnabled>
       <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-        <Animated.View entering={FadeIn.duration(280)} style={[styles.shell, { paddingBottom }]}>
+        <View style={[styles.shell, { paddingBottom }]}>
           <View style={[styles.topHud, { paddingTop: heightPixel(10), paddingHorizontal: scale(20) }]}>
-            <HomeHudBar highScore={highScore} />
+            <HomeHudBar highScore={highScore} coins={coins} />
           </View>
 
           <View style={[styles.main, { paddingHorizontal: scale(24) }]}>
             <View style={styles.heroBlock}>
-              <Animated.View style={styles.ringsLayer} entering={enterRings()}>
+              <View style={styles.ringsLayer}>
                 <PulseRings />
-              </Animated.View>
-              <Animated.View entering={enterHero()} style={styles.logoLayer}>
-                <LogoMarkHero />
-              </Animated.View>
+              </View>
+              <View style={styles.logoLayer}>
+                <LogoMark size={logoSize} />
+              </View>
             </View>
 
             <View style={{ height: heightPixel(10) }} />
             <HomeRewardStrip />
 
-            <Animated.View entering={enterPlay()} style={{ marginTop: heightPixel(22), alignItems: "center" }}>
+            <View style={{ marginTop: heightPixel(22), alignItems: "center" }}>
               <HomePlayButton title="PLAY" onPress={onPlay} />
-            </Animated.View>
+            </View>
           </View>
 
           <HomeBottomBar
             items={[
-              { key: "skins", label: "SHOP", onPress: undefined },
-              { key: "stats", label: "STATS", onPress: undefined },
-              { key: "settings", label: "MENU", onPress: undefined },
+              { key: "skins", label: "SHOP", onPress: onOpenShop },
+              {
+                key: "stats",
+                label: "STATS",
+                onPress: () => {
+                  getAudioManager().playButtonTap();
+                  setStatsOpen(true);
+                },
+              },
             ]}
           />
-        </Animated.View>
+          <HomeScreenBanner />
+          <HomeStatsModal
+            visible={statsOpen}
+            highScore={highScore}
+            onClose={() => setStatsOpen(false)}
+          />
+        </View>
       </SafeAreaView>
     </AnimatedDayCycleBackground>
   );

@@ -1,4 +1,8 @@
 {
   "name": "StackHouse",
-  "displayName": "StackHouse"
+  "displayName": "StackHouse",
+  "react-native-google-mobile-ads": {
+    "android_app_id": "ca-app-pub-6931427565019966~2713342172",
+    "ios_app_id": "ca-app-pub-6931427565019966~4712819552"
+  }
 }

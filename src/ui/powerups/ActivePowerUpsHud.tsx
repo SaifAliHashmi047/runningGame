@@ -107,15 +107,19 @@ function ActivePowerUpsHudInner(props: ActivePowerUpsHudProps) {
 
 export default memo(ActivePowerUpsHudInner);
 
+/** Clears `GameRunHud` score line + Skins button on the top-right (was overlapping timers). */
+const POWER_HUD_TOP = heightPixel(76);
+
 const styles = StyleSheet.create({
   row: {
     position: "absolute",
-    top: heightPixel(10),
-    right: scale(8),
+    top: POWER_HUD_TOP,
+    right: scale(10),
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "flex-end",
-    maxWidth: "72%",
+    alignContent: "flex-start",
+    maxWidth: "58%",
     gap: scale(6),
     zIndex: 60,
   },

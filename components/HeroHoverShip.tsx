@@ -1,5 +1,5 @@
 import React, { memo, useEffect } from "react";
-import { StyleSheet, type ViewStyle } from "react-native";
+import { StyleSheet, View, Image, type ViewStyle, type ImageSourcePropType } from "react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -22,15 +22,25 @@ type Props = {
   /** Lane steer -1…1; updated from game loop without React renders. */
   steerSV: SharedValue<number>;
   qualityTier?: VisualQualityTier;
+  /** When set, replaces the default SVG hero (purchased bitmap skins). */
+  skinImage?: ImageSourcePropType;
 };
 
-function HeroHoverShipInner({ style, width = 56, height = 60, steerSV, qualityTier = 0 }: Props) {
+function HeroHoverShipInner({
+  style,
+  width = 56,
+  height = 60,
+  steerSV,
+  qualityTier = 0,
+  skinImage,
+}: Props) {
   const bob = useSharedValue(0);
   const glow = useSharedValue(1);
   const thruster = useSharedValue(1);
 
   const reduceFx = qualityTier >= 1;
-  const staticMotion = qualityTier >= 3;
+  /** Gameplay uses tier ≥2 — skip idle bob / thruster / glow loops (steer tilt only). */
+  const staticMotion = qualityTier >= 2;
 
   useEffect(() => {
     if (staticMotion) {
@@ -86,6 +96,20 @@ function HeroHoverShipInner({ style, width = 56, height = 60, steerSV, qualityTi
     transform: [{ scaleY: interpolate(thruster.value, [0.55, 1], [0.88, 1.06]) }],
   }));
 
+  const thrusterBox = [
+    styles.thruster,
+    staticMotion && styles.thrusterLite,
+    staticMotion && styles.thrusterStatic,
+    {
+      left: "50%" as const,
+      width: width * 0.22,
+      height: height * 0.14,
+      borderRadius: 4,
+      bottom: -height * 0.02,
+      marginLeft: -(width * 0.22) / 2,
+    },
+  ];
+
   return (
     <Animated.View style={[styles.wrap, { width, height }, style]}>
       {qualityTier < 2 && (
@@ -94,23 +118,17 @@ function HeroHoverShipInner({ style, width = 56, height = 60, steerSV, qualityTi
         />
       )}
       <Animated.View style={[styles.heroInner, heroMotion]}>
-        <GameSvgArt module={HeroHoverShipSvg} width={width} height={height} />
+        {skinImage ? (
+          <Image source={skinImage} style={{ width, height }} resizeMode="contain" />
+        ) : (
+          <GameSvgArt module={HeroHoverShipSvg} width={width} height={height} />
+        )}
       </Animated.View>
-      <Animated.View
-        style={[
-          styles.thruster,
-          thrusterStyle,
-          qualityTier >= 2 && styles.thrusterLite,
-          {
-            left: "50%",
-            width: width * 0.22,
-            height: height * 0.14,
-            borderRadius: 4,
-            bottom: -height * 0.02,
-            marginLeft: -(width * 0.22) / 2,
-          },
-        ]}
-      />
+      {staticMotion ? (
+        <View style={thrusterBox} />
+      ) : (
+        <Animated.View style={[thrusterBox, thrusterStyle]} />
+      )}
     </Animated.View>
   );
 }
@@ -144,5 +162,9 @@ const styles = StyleSheet.create({
   thrusterLite: {
     shadowOpacity: 0,
     elevation: 0,
+  },
+  thrusterStatic: {
+    opacity: 0.82,
+    transform: [{ scaleY: 0.98 }],
   },
 });

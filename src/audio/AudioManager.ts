@@ -68,10 +68,7 @@ export class GameAudioManager {
   private coinCombo = 0;
   private coinVariant = 0;
   private deathLock = false;
-  private musicDucked = false;
-  private fadeTimer: ReturnType<typeof setInterval> | null = null;
 
-  private effMusicVol = AUDIO_MIX.music * AUDIO_MIX.musicMaster;
   private effAmbientVol = AUDIO_MIX.ambient * AUDIO_MIX.ambientMaster;
 
   /** Configure iOS/Android session once */
@@ -90,8 +87,6 @@ export class GameAudioManager {
     this.configure();
     this.preloadPromise = (async () => {
       const entries: [string, string][] = [
-        ["bgMenu", BUNDLE_AUDIO.bgMenu],
-        ["bgGameplay", BUNDLE_AUDIO.bgGameplay],
         ["shipHum", BUNDLE_AUDIO.shipHum],
         ["coin1", BUNDLE_AUDIO.coin1],
         ["coin2", BUNDLE_AUDIO.coin2],
@@ -115,126 +110,13 @@ export class GameAudioManager {
     return this.preloadPromise;
   }
 
-  private bgMenu(): Sound | null {
-    return this.loaded.bgMenu ?? null;
-  }
-  private bgGameplay(): Sound | null {
-    return this.loaded.bgGameplay ?? null;
-  }
   private hum(): Sound | null {
     return this.loaded.shipHum ?? null;
-  }
-
-  private clearFade() {
-    if (this.fadeTimer != null) {
-      clearInterval(this.fadeTimer);
-      this.fadeTimer = null;
-    }
-  }
-
-  private fadeVolume(s: Sound | null, from: number, to: number, ms: number, onDone?: () => void) {
-    this.clearFade();
-    if (!s?.isLoaded()) {
-      onDone?.();
-      return;
-    }
-    const steps = Math.max(8, Math.floor(ms / 32));
-    let i = 0;
-    this.fadeTimer = setInterval(() => {
-      i++;
-      const t = Math.min(1, i / steps);
-      const v = from + (to - from) * t;
-      try {
-        s.setVolume(v);
-      } catch {
-        /* ignore */
-      }
-      if (i >= steps) {
-        this.clearFade();
-        onDone?.();
-      }
-    }, Math.max(16, Math.floor(ms / steps)));
-  }
-
-  // —— Menu / gameplay music ——
-
-  playMenuMusic(): void {
-    const menu = this.bgMenu();
-    const game = this.bgGameplay();
-    safeStop(game);
-    this.musicDucked = false;
-    this.clearFade();
-    if (!menu?.isLoaded()) return;
-    menu.setNumberOfLoops(-1);
-    menu.setVolume(0);
-    menu.play();
-    this.fadeVolume(menu, 0, this.effMusicVol * AUDIO_GAIN.bgMenu, AUDIO_TIMING.musicFadeInMs);
-  }
-
-  stopMenuMusic(): void {
-    const menu = this.bgMenu();
-    if (!menu?.isLoaded()) return;
-    this.fadeVolume(menu, menu.getVolume(), 0, AUDIO_TIMING.musicFadeOutMs, () => safeStop(menu));
-  }
-
-  playGameplayMusic(): void {
-    const menu = this.bgMenu();
-    const game = this.bgGameplay();
-    safeStop(menu);
-    this.musicDucked = false;
-    this.clearFade();
-    if (!game?.isLoaded()) return;
-    game.setNumberOfLoops(-1);
-    game.setVolume(0);
-    game.play();
-    this.fadeVolume(game, 0, this.effMusicVol * AUDIO_GAIN.bgGameplay, AUDIO_TIMING.musicFadeInMs);
-  }
-
-  stopGameplayMusic(): void {
-    const game = this.bgGameplay();
-    if (!game?.isLoaded()) return;
-    this.fadeVolume(game, game.getVolume(), 0, AUDIO_TIMING.musicFadeOutMs, () => safeStop(game));
-  }
-
-  /** Alias — looping gameplay bed */
-  playMusicLoop(): void {
-    this.playGameplayMusic();
   }
 
   /** Alias — soft hero hover loop */
   playShipHumLoop(): void {
     this.startShipHum();
-  }
-
-  pauseMusic(): void {
-    safePause(this.bgGameplay());
-  }
-
-  resumeMusic(): void {
-    const g = this.bgGameplay();
-    if (!g?.isLoaded()) return;
-    try {
-      g.play();
-    } catch {
-      /* ignore */
-    }
-  }
-
-  duckMusic(): void {
-    const game = this.bgGameplay();
-    if (!game?.isLoaded()) return;
-    this.musicDucked = true;
-    const cur = game.getVolume();
-    const target = this.effMusicVol * AUDIO_GAIN.bgGameplay * AUDIO_TIMING.duckMusicMult;
-    this.fadeVolume(game, cur, target, 180);
-  }
-
-  unduckMusic(): void {
-    const game = this.bgGameplay();
-    if (!game?.isLoaded()) return;
-    this.musicDucked = false;
-    const target = this.effMusicVol * AUDIO_GAIN.bgGameplay;
-    this.fadeVolume(game, game.getVolume(), target, 260);
   }
 
   // —— Ship hum ——
@@ -395,51 +277,41 @@ export class GameAudioManager {
   // —— Pause / resume gameplay stack ——
 
   pauseGameAudio(): void {
-    this.pauseMusic();
     this.pauseShipHum();
   }
 
   resumeGameAudio(): void {
-    this.resumeMusic();
     this.resumeShipHum();
   }
 
   /**
-   * Entering a run from menu / retry: menu off, gameplay + hum on.
+   * Entering a run from menu / retry: ship hum on.
    */
   onGameSessionStart(): void {
-    this.stopMenuMusic();
     this.deathLock = false;
-    this.playGameplayMusic();
     this.startShipHum();
   }
 
   /**
-   * Leaving game screen (home): stop run layers, menu handled separately.
+   * Leaving game screen (home): stop run layers.
    */
   onGameSessionEnd(): void {
-    this.clearFade();
     this.stopShipHum();
-    this.stopGameplayMusic();
   }
 
-  /** Game over: hum off, music duck, death sting */
+  /** Game over: hum off, death sting */
   onGameOver(): void {
     this.stopShipHum();
-    this.duckMusic();
     this.playDeath();
   }
 
-  /** After retry — restore mix and loops */
+  /** After retry — restore ship hum */
   onRunRestart(): void {
     this.deathLock = false;
-    this.musicDucked = false;
-    this.unduckMusic();
     this.startShipHum();
   }
 
   dispose(): void {
-    this.clearFade();
     for (const k of Object.keys(this.loaded)) {
       safeRelease(this.loaded[k]);
       this.loaded[k] = null;

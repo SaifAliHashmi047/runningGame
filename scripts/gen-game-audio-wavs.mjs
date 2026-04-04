@@ -68,8 +68,6 @@ function writeNoiseBurst(filePath, durationSec, gain = 0.2) {
 }
 
 const specs = [
-  { rel: "music/bg_menu_loop.wav", durationSec: 1.2, sineHz: 196, gain: 0.06 },
-  { rel: "music/bg_gameplay_loop.wav", durationSec: 1.2, sineHz: 262, gain: 0.055 },
   { rel: "sfx/coin_collect_1.wav", durationSec: 0.055, sineHz: 920, gain: 0.14 },
   { rel: "sfx/coin_collect_2.wav", durationSec: 0.055, sineHz: 740, gain: 0.13 },
   { rel: "sfx/hero_dead.wav", durationSec: 0.38, sineHz: 0, gain: 0 },

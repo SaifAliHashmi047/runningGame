@@ -30,9 +30,18 @@ function PowerUpInner({ kind, size, style, embedded }: Props) {
         { width: size + pad * 2, height: size + pad * 2 },
       ]}
     >
-      <View
-        style={[styles.glow, { width: size + pad * 2 + scale(10), height: size + pad * 2 + scale(10), borderColor: def.accent }]}
-      />
+      {!embedded && (
+        <View
+          style={[
+            styles.glow,
+            {
+              width: size + pad * 2 + scale(10),
+              height: size + pad * 2 + scale(10),
+              borderColor: def.accent,
+            },
+          ]}
+        />
+      )}
       <View style={[styles.pedestal, { width: size + scale(12), height: size + scale(12), borderColor: def.ring }]}>
         <PowerUpIcon kind={kind} size={size} ambient style={{ backgroundColor: "rgba(15,23,42,0.2)" }} />
       </View>

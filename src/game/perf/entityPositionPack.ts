@@ -3,9 +3,12 @@ import type { SharedValue } from "react-native-reanimated";
 import type { EntityPosMap } from "../../ui/game/entityPositions";
 
 /** Hard caps — spawn paths skip when full (reduces collision + draw cost). */
-export const MAX_ACTIVE_OBSTACLES = 22;
-export const MAX_ACTIVE_COINS = 38;
-export const MAX_ACTIVE_POWERUPS = 5;
+export const MAX_ACTIVE_OBSTACLES = 10;
+
+/** Obstacles overlapping the play viewport at once (see `countObstaclesInPlayViewport`). */
+export const MAX_ON_SCREEN_OBSTACLES = 4;
+export const MAX_ACTIVE_COINS = 12;
+export const MAX_ACTIVE_POWERUPS = 2;
 
 /** Push score/distance to React this often at most (gameplay stays in refs / SharedValues). */
 export const HUD_SCORE_THROTTLE_MS = 120;
@@ -19,27 +22,19 @@ export function packVisibleIntoEntityPosSV<T extends { id: number }>(
   n: number,
   pickXY: (t: T) => { x: number; y: number },
   scratch: MutableRefObject<EntityPosMap>,
-  aliveReuse: MutableRefObject<Set<number>>,
+  _aliveReuse: MutableRefObject<Set<number>>,
   sv: SharedValue<EntityPosMap>
 ): void {
-  const m = scratch.current;
-  const alive = aliveReuse.current;
-  alive.clear();
-  for (let i = 0; i < n; i++) {
-    alive.add(items[i].id);
-  }
-  for (const k of Object.keys(m)) {
-    const id = Number(k);
-    if (!alive.has(id)) delete m[id];
-  }
+  // Fresh map each frame: avoids Object.keys/delete + Set churn; Reanimated needs a new
+  // `sv.value` reference so worklets pick up positions.
+  const next: EntityPosMap = {};
   for (let i = 0; i < n; i++) {
     const e = items[i];
     const { x, y } = pickXY(e);
-    // New object each frame so Reanimated 4 worklets see updates (in-place mutate + shallow
-    // spread on the map alone can leave UI-thread reads stale).
-    m[e.id] = { x, y };
+    next[e.id] = { x, y };
   }
-  sv.value = { ...m };
+  scratch.current = next;
+  sv.value = next;
 }
 
 /** @deprecated Use packVisibleIntoEntityPosSV with pickXY identity */

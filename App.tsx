@@ -8,6 +8,9 @@ import {
   Pressable,
   Platform,
   Modal,
+  Image,
+  AppState,
+  ActivityIndicator,
   type GestureResponderEvent,
   type LayoutChangeEvent,
 } from "react-native";
@@ -17,6 +20,24 @@ import SkyLane from "./components/SkyLane";
 import ShopModal from "./components/ShopModal";
 import { powerUpWorldRenderOutset } from "./components/PowerUp";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { AdsRoot } from "./src/ads";
+import { showPlayInterstitialThen } from "./src/ads/playInterstitial";
+import {
+  prepareShopRewardedAd,
+  showShopRewardedForCoins,
+} from "./src/ads/shopRewardedCoins";
+import {
+  prepareReviveRewardedAd,
+  showReviveRewardedAd,
+} from "./src/ads/reviveRewardedAd";
+import { SHOP_SKIN_ROWS, heroImageForSkinId } from "./src/game/heroSkinCatalog";
+import {
+  loadBestSingleRunStats,
+  mergeMilestoneUnlocks,
+  persistBestSingleRunStats,
+  skinMilestoneSatisfied,
+  type BestSingleRunStats,
+} from "./src/game/milestoneUnlock";
 import HomeScreen from "./src/screens/HomeScreen";
 import { GameplayReducedMotion } from "./src/game/motion/GameplayReducedMotion";
 import type { ObstacleVisual } from "./src/game/types";
@@ -30,8 +51,16 @@ import {
 } from "./src/game/hitboxes";
 import HitboxDebugOverlay from "./src/ui/HitboxDebugOverlay";
 import AnimatedDayCycleBackground from "./src/ui/AnimatedDayCycleBackground";
+import { COIN_TEXTURE } from "./src/assets/coins";
+import { OBSTACLE_TEXTURE_SOURCES } from "./src/assets/obstacles";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import LinearGradient from "react-native-linear-gradient";
+import {
+  CURRENT_SKIN_KEY,
+  HIGH_SCORE_KEY,
+  OWNED_SKINS_KEY,
+  SAVED_COINS_KEY,
+  TOTAL_RUNS_KEY,
+} from "./src/storage/persistenceKeys";
 import type { PowerUpKind } from "./src/game/powers";
 import { pickPowerUpKind, POWERUP_DEFS } from "./src/game/powers";
 import { ActivePowerUpsHud, PowerPickupFlash } from "./src/ui/powerups";
@@ -71,8 +100,14 @@ import {
   RUNNER_START_SPEED,
 } from "./src/game/runner/runnerConfig";
 import { computeLaneGeometry } from "./src/game/runner/lanes";
-import { materializeObstaclePattern, pickObstaclePattern } from "./src/game/runner/obstaclePatterns";
-import { materializeCoinPattern, pickCoinPattern } from "./src/game/runner/coinPatterns";
+import {
+  materializeObstaclePattern,
+  pickObstaclePattern,
+} from "./src/game/runner/obstaclePatterns";
+import {
+  materializeCoinPattern,
+  pickCoinPattern,
+} from "./src/game/runner/coinPatterns";
 import {
   obstacleSpawnIntervalFrames,
   runElapsedSeconds,
@@ -84,6 +119,7 @@ import {
   coinPatternPhaseFromZone,
   getRunnerZoneByDistance,
   patternPhaseFromZoneIndex,
+  zoneObstacleRateForSpawn,
 } from "./src/game/zones/runnerZones";
 import {
   DEBUG_PERF_OVERLAY,
@@ -92,11 +128,25 @@ import {
   TARGET_FRAME_MS,
   type VisualQualityTier,
 } from "./src/game/performanceConfig";
-import { planSimulationSubsteps, stepWallMsForK } from "./src/game/runLoop/fixedSubsteps";
+import {
+  planSimulationSubsteps,
+  stepWallMsForK,
+} from "./src/game/runLoop/fixedSubsteps";
 import { EntityPool } from "./src/game/runLoop/entityPool";
-import { ENTITY_CULL_BELOW_SCREEN_PAD, fillRenderVisible } from "./src/game/runLoop/fillRenderVisible";
+import {
+  countObstaclesInPlayViewport,
+  fillRenderVisible,
+} from "./src/game/runLoop/fillRenderVisible";
+import {
+  compactCoinsOffScreen,
+  compactObstaclesOffScreen,
+  compactPowerUpsOffScreen,
+} from "./src/game/runLoop/simEntityCull";
 import { obstacleBroadphaseX } from "./src/game/runLoop/broadphaseCollision";
-import { PerfSampler, type PerfSamplerStats } from "./src/game/performanceSampler";
+import {
+  PerfSampler,
+  type PerfSamplerStats,
+} from "./src/game/performanceSampler";
 import FpsPerfOverlay from "./src/ui/FpsPerfOverlay";
 import GameRunHud from "./src/ui/game/GameRunHud";
 import {
@@ -104,14 +154,28 @@ import {
   MAX_ACTIVE_COINS,
   MAX_ACTIVE_OBSTACLES,
   MAX_ACTIVE_POWERUPS,
+  MAX_ON_SCREEN_OBSTACLES,
   packVisibleIntoEntityPosSV,
 } from "./src/game/perf/entityPositionPack";
-import { forEachObstacleInVerticalBand, obstacleLaneRelevantForPlayer } from "./src/game/collisionQueries";
+import {
+  forEachObstacleInVerticalBand,
+  obstacleLaneRelevantForPlayer,
+} from "./src/game/collisionQueries";
 import type { EntityPosMap } from "./src/ui/game/entityPositions";
 import WorldEntityLayer from "./src/ui/game/WorldEntityLayer";
 import type { TrackedObstacleSpec } from "./src/ui/game/TrackedObstacle";
-import type { CoinRenderSpec, PowerRenderSpec } from "./src/ui/game/WorldEntityLayer";
-import { fontPixel, heightPixel, moderateScale, scale, screenHeight, screenWidth } from "./utils/responsive";
+import type {
+  CoinRenderSpec,
+  PowerRenderSpec,
+} from "./src/ui/game/WorldEntityLayer";
+import {
+  fontPixel,
+  heightPixel,
+  moderateScale,
+  scale,
+  screenHeight,
+  screenWidth,
+} from "./utils/responsive";
 
 /**
  * Score tiers rotate which day-cycle SVG is mapped to each beat (morning/day/sunset/night).
@@ -120,7 +184,10 @@ import { fontPixel, heightPixel, moderateScale, scale, screenHeight, screenWidth
 const BG_IMAGE_SCORE_SPAN = 3500;
 const BG_IMAGE_PHASE_COUNT = 4;
 function getBackgroundImagePhase(distanceFloor: number): number {
-  return Math.floor(Math.max(0, distanceFloor) / BG_IMAGE_SCORE_SPAN) % BG_IMAGE_PHASE_COUNT;
+  return (
+    Math.floor(Math.max(0, distanceFloor) / BG_IMAGE_SCORE_SPAN) %
+    BG_IMAGE_PHASE_COUNT
+  );
 }
 const SCREEN_WIDTH = screenWidth;
 const SCREEN_HEIGHT = screenHeight;
@@ -131,9 +198,17 @@ const perfNow = (): number => {
   return typeof p?.now === "function" ? p.now() : Date.now();
 };
 
-const HIGH_SCORE_KEY = "@stackRunner/highScore";
-const OWNED_SKINS_KEY = "@stackRunner/ownedSkins";
-const CURRENT_SKIN_KEY = "@stackRunner/currentSkin";
+/** Kept in sync with `SAVED_COINS_KEY` so `resetGame` can restore the wallet after a run. */
+let lastPersistedCoinBalance = 0;
+
+function persistSavedCoins(coins: number) {
+  const c = Math.max(0, Math.floor(coins));
+  lastPersistedCoinBalance = c;
+  void AsyncStorage.setItem(SAVED_COINS_KEY, String(c)).catch(() => {});
+}
+
+/** Dev only: non-zero seeds saved coins on launch. Always `0` in production (`__DEV__` is false). */
+const DEV_GRANT_COINS_ON_LAUNCH = __DEV__ ? 50_0000000000 : 0;
 
 const GRAVITY = 0.72;
 const JUMP_FORCE = 15;
@@ -178,7 +253,6 @@ type Obstacle = {
   size: number;
   type: ObstacleType;
   visual: ObstacleVisual;
-  color: string;
   driftPhase?: number;
   lane: number;
   /** Cached render size — from `obstacleHitSize` at spawn. */
@@ -206,7 +280,10 @@ type CoinItem = {
   size: number;
 };
 
-function dedupeCoinsInPlace(coins: CoinItem[], release: (c: CoinItem) => void): void {
+function dedupeCoinsInPlace(
+  coins: CoinItem[],
+  release: (c: CoinItem) => void,
+): void {
   const seen = new Set<number>();
   let w = 0;
   for (let i = 0; i < coins.length; i++) {
@@ -241,6 +318,8 @@ type SimState = {
   /** Total = floor(runDistance) + pickupScore (cached for systems that read `score`). */
   score: number;
   coinsCollected: number;
+  /** Coins picked up this run only (trail + magnet); used for milestone “coins in one run”. */
+  coinsEarnedThisRun: number;
   paused: boolean;
   holdFreeze: boolean;
   shakeT: number;
@@ -251,7 +330,6 @@ type SimState = {
   boostUntil: number;
   slowTimeUntil: number;
   ghostPhaseUntil: number;
-  activatePulseT: number;
   pickupFlashKind: PowerUpKind | null;
   pickupFlashToken: number;
   hitGraceUntil: number; // brief invulnerability after shield pop
@@ -310,7 +388,11 @@ function collides(playerY: number, playerX: number, obs: Obstacle): boolean {
   });
 }
 
-function collidesPower(playerY: number, playerX: number, p: PowerUpItem): boolean {
+function collidesPower(
+  playerY: number,
+  playerX: number,
+  p: PowerUpItem,
+): boolean {
   const pLeft = playerX;
   const pRight = playerX + PLAYER_WIDTH;
   const pTop = SCREEN_HEIGHT - (GROUND_HEIGHT + playerY + PLAYER_HEIGHT);
@@ -336,25 +418,37 @@ function collidesCoin(playerY: number, playerX: number, c: CoinItem): boolean {
   return oLeft < pRight && oRight > pLeft && oTop < pBottom && oBottom > pTop;
 }
 
-const HITBOX_OVERLAY_ENABLED = DEBUG_DRAW_COLLISION_BOXES || DEBUG_DRAW_VISUAL_BOUNDS;
+const HITBOX_OVERLAY_ENABLED =
+  DEBUG_DRAW_COLLISION_BOXES || DEBUG_DRAW_VISUAL_BOUNDS;
 
-function visibleEntitySig<T extends { id: number }>(items: readonly T[], n: number): string {
+/** Join-based sig avoids O(n²) string growth when many coins/obstacles are visible. */
+function visibleEntitySig<T extends { id: number }>(
+  items: readonly T[],
+  n: number,
+): string {
   if (n === 0) return "";
-  let s = String(n);
-  for (let i = 0; i < n; i++) s += `:${items[i].id}`;
-  return s;
+  const parts = new Array<string>(n + 1);
+  parts[0] = String(n);
+  for (let i = 0; i < n; i++) parts[i + 1] = String(items[i].id);
+  return parts.join(":");
 }
 
-function buildObstacleRenderSpecs(obs: readonly Obstacle[], n: number): TrackedObstacleSpec[] {
+function buildObstacleRenderSpecs(
+  obs: readonly Obstacle[],
+  n: number,
+): TrackedObstacleSpec[] {
   const out: TrackedObstacleSpec[] = [];
   for (let i = 0; i < n; i++) {
     const o = obs[i];
-    out.push({ id: o.id, visW: o.visW, visH: o.visH, color: o.color });
+    out.push({ id: o.id, visW: o.visW, visH: o.visH, visual: o.visual });
   }
   return out;
 }
 
-function buildCoinRenderSpecs(items: readonly CoinItem[], n: number): CoinRenderSpec[] {
+function buildCoinRenderSpecs(
+  items: readonly CoinItem[],
+  n: number,
+): CoinRenderSpec[] {
   const out: CoinRenderSpec[] = [];
   for (let i = 0; i < n; i++) {
     const c = items[i];
@@ -363,7 +457,10 @@ function buildCoinRenderSpecs(items: readonly CoinItem[], n: number): CoinRender
   return out;
 }
 
-function buildPowerRenderSpecs(items: readonly PowerUpItem[], n: number): PowerRenderSpec[] {
+function buildPowerRenderSpecs(
+  items: readonly PowerUpItem[],
+  n: number,
+): PowerRenderSpec[] {
   const out: PowerRenderSpec[] = [];
   for (let i = 0; i < n; i++) {
     const p = items[i];
@@ -382,12 +479,13 @@ const initialSim = (): SimState => ({
   coins: [],
   speed: RUNNER_START_SPEED,
   spawnCooldown: 34,
-  powerSpawnCooldown: 100,
-  coinSpawnCooldown: 90,
+  powerSpawnCooldown: 200,
+  coinSpawnCooldown: 150,
   runDistance: 0,
   pickupScore: 0,
   score: 0,
   coinsCollected: 0,
+  coinsEarnedThisRun: 0,
   paused: false,
   holdFreeze: false,
   shakeT: 0,
@@ -398,7 +496,6 @@ const initialSim = (): SimState => ({
   boostUntil: 0,
   slowTimeUntil: 0,
   ghostPhaseUntil: 0,
-  activatePulseT: 0,
   pickupFlashKind: null,
   pickupFlashToken: 0,
   hitGraceUntil: 0,
@@ -450,9 +547,13 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     obstacleIdRef.current += 1;
     return obstacleIdRef.current;
   };
-  const obstaclePoolRef = useRef(new EntityPool<Obstacle>(() => ({} as Obstacle)));
+  const obstaclePoolRef = useRef(
+    new EntityPool<Obstacle>(() => ({} as Obstacle)),
+  );
   const coinPoolRef = useRef(new EntityPool<CoinItem>(() => ({} as CoinItem)));
-  const powerPoolRef = useRef(new EntityPool<PowerUpItem>(() => ({} as PowerUpItem)));
+  const powerPoolRef = useRef(
+    new EntityPool<PowerUpItem>(() => ({} as PowerUpItem)),
+  );
   const simSubstepBankRef = useRef(0);
   const substepKsRef = useRef<number[]>([]);
   const rafRef = useRef<number | null>(null);
@@ -464,6 +565,8 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
   const perfSamplerRef = useRef(new PerfSampler());
   const lastFramePerfRef = useRef(perfNow());
   const lastPerfUiRef = useRef(0);
+  /** Last tier pushed from the perf sampler — avoids `setVisualTier` every refresh when unchanged. */
+  const lastPerfVisualTierRef = useRef<VisualQualityTier>(0);
 
   const [gameOver, setGameOver] = useState(false);
   const [highScore, setHighScore] = useState(0);
@@ -476,16 +579,22 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
   }));
   const [heroAuraMask, setHeroAuraMask] = useState(0);
   const [uiEpoch, setUiEpoch] = useState(0);
-  const [zoneBanner, setZoneBanner] = useState<{ id: number; zoneNumber: number } | null>(null);
+  const [runPaused, setRunPaused] = useState(false);
+  const [videoRewardBusy, setVideoRewardBusy] = useState(false);
+  const [reviveVideoBusy, setReviveVideoBusy] = useState(false);
+  const [zoneBanner, setZoneBanner] = useState<{
+    id: number;
+    zoneNumber: number;
+  } | null>(null);
 
   const lastWorldFxKeyRef = useRef("none|0");
   const lastAuraMaskRef = useRef(0);
+  /** User pause (separate from shop modal) — ref stays in sync for `applyPauseFromSources`. */
+  const runPausedRef = useRef(false);
 
   const heroLeftSV = useSharedValue(PLAYER_X);
   const heroBottomSV = useSharedValue(GROUND_HEIGHT);
   const heroSteerSV = useSharedValue(0);
-  const heroPulseSV = useSharedValue(1);
-  const heroMagnetYSV = useSharedValue(0);
 
   const obsPositionsSV = useSharedValue<EntityPosMap>({});
   const coinPositionsSV = useSharedValue<EntityPosMap>({});
@@ -497,9 +606,13 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
   const coinAliveRef = useRef<Set<number>>(new Set());
   const powerAliveRef = useRef<Set<number>>(new Set());
 
-  const [obsRenderSpecs, setObsRenderSpecs] = useState<TrackedObstacleSpec[]>([]);
+  const [obsRenderSpecs, setObsRenderSpecs] = useState<TrackedObstacleSpec[]>(
+    [],
+  );
   const [coinRenderSpecs, setCoinRenderSpecs] = useState<CoinRenderSpec[]>([]);
-  const [powerRenderSpecs, setPowerRenderSpecs] = useState<PowerRenderSpec[]>([]);
+  const [powerRenderSpecs, setPowerRenderSpecs] = useState<PowerRenderSpec[]>(
+    [],
+  );
   const obsSigRef = useRef("");
   const coinSigRef = useRef("");
   const powSigRef = useRef("");
@@ -509,15 +622,68 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
 
   const [runHud, setRunHud] = useState({ score: 0, distanceFloor: 0 });
   /** Matches gameplay `View` size inside SafeArea — day-cycle SVG must use this, not raw window dims. */
-  const [gameLayout, setGameLayout] = useState<{ w: number; h: number } | null>(null);
+  const [gameLayout, setGameLayout] = useState<{ w: number; h: number } | null>(
+    null,
+  );
   const [bgPhase, setBgPhase] = useState(0);
   const bgPhaseRef = useRef(0);
   const lastHudPushRef = useRef(0);
   const lastHudScoreRef = useRef(0);
   const lastHudDistRef = useRef(0);
 
+  const bestRunStatsRef = useRef<BestSingleRunStats>({
+    distanceM: 0,
+    runCoins: 0,
+  });
+  const lastMilestoneCheckRef = useRef({ d: -1, c: -1 });
+  const [shopBestStats, setShopBestStats] = useState<BestSingleRunStats>({
+    distanceM: 0,
+    runCoins: 0,
+  });
+
+  /** Avoid simulating until saved wallet is loaded (prevents storage hydrate overwriting pickups). */
+  const walletHydratedRef = useRef(false);
+  const coinPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  const scheduleCoinPersist = useCallback(() => {
+    if (coinPersistTimerRef.current != null) {
+      clearTimeout(coinPersistTimerRef.current);
+    }
+    coinPersistTimerRef.current = setTimeout(() => {
+      coinPersistTimerRef.current = null;
+      persistSavedCoins(sim.current.coinsCollected);
+    }, 320);
+  }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "background" || state === "inactive") {
+        if (coinPersistTimerRef.current != null) {
+          clearTimeout(coinPersistTimerRef.current);
+          coinPersistTimerRef.current = null;
+        }
+        persistSavedCoins(sim.current.coinsCollected);
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    if (gameOver) return;
+    for (const mod of [
+      ...Object.values(OBSTACLE_TEXTURE_SOURCES),
+      COIN_TEXTURE,
+    ]) {
+      const r = Image.resolveAssetSource(mod);
+      if (r?.uri) void Image.prefetch(r.uri);
+    }
+  }, [gameOver, runSessionKey]);
+
   useEffect(() => {
     let cancelled = false;
+    walletHydratedRef.current = false;
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(HIGH_SCORE_KEY);
@@ -535,9 +701,46 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         }
         if (!cancelled && rawCurrent) {
           sim.current.currentSkin = rawCurrent;
+          setUiEpoch((e) => e + 1);
+        }
+        const rawCoins = await AsyncStorage.getItem(SAVED_COINS_KEY);
+        if (!cancelled) {
+          if (DEV_GRANT_COINS_ON_LAUNCH > 0) {
+            const c = DEV_GRANT_COINS_ON_LAUNCH;
+            sim.current.coinsCollected = c;
+            lastPersistedCoinBalance = c;
+          } else if (rawCoins != null) {
+            const n = parseInt(rawCoins, 10);
+            if (!Number.isNaN(n)) {
+              const c = Math.max(0, n);
+              sim.current.coinsCollected = c;
+              lastPersistedCoinBalance = c;
+            }
+          }
+        }
+        const br = await loadBestSingleRunStats();
+        if (!cancelled) {
+          bestRunStatsRef.current = br;
+          setShopBestStats(br);
+          const merged = mergeMilestoneUnlocks(
+            sim.current.ownedSkins,
+            br.distanceM,
+            br.runCoins,
+          );
+          const prevS = new Set(sim.current.ownedSkins);
+          if (merged.some((id) => !prevS.has(id))) {
+            sim.current.ownedSkins = merged;
+            await AsyncStorage.setItem(
+              OWNED_SKINS_KEY,
+              JSON.stringify(merged),
+            ).catch(() => {});
+            setUiEpoch((e) => e + 1);
+          }
         }
       } catch {
         /* ignore */
+      } finally {
+        if (!cancelled) walletHydratedRef.current = true;
       }
     })();
     return () => {
@@ -570,33 +773,49 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     }
   }, [paused, gameOver]);
 
+  const applyPauseFromSources = useCallback(() => {
+    sim.current.paused = sim.current.shopOpen || runPausedRef.current;
+    setPaused(sim.current.paused);
+  }, []);
+
+  useEffect(() => {
+    if (!gameOver) return;
+    runPausedRef.current = false;
+    setRunPaused(false);
+  }, [gameOver]);
+
   const resetGame = useCallback(() => {
     const prev = sim.current;
     const oPool = obstaclePoolRef.current;
-    for (let i = 0; i < prev.obstacles.length; i++) oPool.release(prev.obstacles[i]);
+    for (let i = 0; i < prev.obstacles.length; i++)
+      oPool.release(prev.obstacles[i]);
     const cPool = coinPoolRef.current;
     for (let i = 0; i < prev.coins.length; i++) cPool.release(prev.coins[i]);
-    for (let i = 0; i < prev.patternCoinScratch.length; i++) cPool.release(prev.patternCoinScratch[i]);
+    for (let i = 0; i < prev.patternCoinScratch.length; i++)
+      cPool.release(prev.patternCoinScratch[i]);
     const pPool = powerPoolRef.current;
-    for (let i = 0; i < prev.powerUps.length; i++) pPool.release(prev.powerUps[i]);
+    for (let i = 0; i < prev.powerUps.length; i++)
+      pPool.release(prev.powerUps[i]);
 
+    const prevOwned = [...prev.ownedSkins];
+    const prevSkin = prev.currentSkin;
     sim.current = initialSim();
+    sim.current.coinsCollected = lastPersistedCoinBalance;
+    sim.current.ownedSkins = prevOwned;
+    sim.current.currentSkin = prevSkin;
     obstacleIdRef.current = 0;
     simSubstepBankRef.current = 0;
     perfSamplerRef.current.reset();
     lastFramePerfRef.current = perfNow();
     lastPerfUiRef.current = 0;
+    lastPerfVisualTierRef.current = 0;
     isDraggingRef.current = false;
     cancelAnimation(heroLeftSV);
     cancelAnimation(heroBottomSV);
     cancelAnimation(heroSteerSV);
-    cancelAnimation(heroPulseSV);
-    cancelAnimation(heroMagnetYSV);
     heroLeftSV.value = PLAYER_X;
     heroBottomSV.value = GROUND_HEIGHT;
     heroSteerSV.value = 0;
-    heroPulseSV.value = 1;
-    heroMagnetYSV.value = 0;
     lastFingerXRef.current = null;
     touchOffsetRef.current = 0;
     obsPositionsSV.value = {};
@@ -616,6 +835,8 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     setCoinRenderSpecs([]);
     setPowerRenderSpecs([]);
     setGameOver(false);
+    runPausedRef.current = false;
+    setRunPaused(false);
     setPaused(false);
     setPerfStats(null);
     setVisualTier(0);
@@ -630,7 +851,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     lastHudPushRef.current = 0;
     lastHudScoreRef.current = 0;
     lastHudDistRef.current = 0;
-  }, [heroBottomSV, heroLeftSV, heroMagnetYSV, heroPulseSV, heroSteerSV]);
+  }, [heroBottomSV, heroLeftSV, heroSteerSV]);
 
   useEffect(() => {
     if (!zoneBanner) return;
@@ -643,7 +864,12 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
       return;
     }
     // If we just dragged, treat as drag-not-tap to avoid accidental jumps
-    if (paused || isDraggingRef.current || Date.now() - lastDragEndMsRef.current < 160) return;
+    if (
+      paused ||
+      isDraggingRef.current ||
+      Date.now() - lastDragEndMsRef.current < 160
+    )
+      return;
     if (sim.current.playerY === 0) {
       sim.current.velocity = JUMP_FORCE;
     }
@@ -657,43 +883,143 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
   }, [resetGame]);
 
   const handleExitToHome = useCallback(() => {
+    persistSavedCoins(sim.current.coinsCollected);
     resetGame();
     onExitToHome?.();
   }, [resetGame, onExitToHome]);
 
   const toggleShop = useCallback(() => {
     getAudioManager().playButtonTap();
-    const next = !sim.current.shopOpen;
+    const wasOpen = sim.current.shopOpen;
+    const next = !wasOpen;
+    if (wasOpen && !next) {
+      persistSavedCoins(sim.current.coinsCollected);
+    }
     sim.current.shopOpen = next;
-    sim.current.paused = next;
-    setPaused(next);
+    applyPauseFromSources();
+    if (next) prepareShopRewardedAd();
+  }, [applyPauseFromSources]);
+
+  const toggleRunPause = useCallback(() => {
+    if (gameOver || sim.current.shopOpen) return;
+    getAudioManager().playButtonTap();
+    runPausedRef.current = !runPausedRef.current;
+    setRunPaused(runPausedRef.current);
+    applyPauseFromSources();
+  }, [gameOver, applyPauseFromSources]);
+
+  const handleWatchVideoForCoins = useCallback(() => {
+    if (videoRewardBusy) return;
+    setVideoRewardBusy(true);
+    showShopRewardedForCoins(
+      (coins) => {
+        sim.current.coinsCollected += coins;
+        persistSavedCoins(sim.current.coinsCollected);
+        setUiEpoch((e) => e + 1);
+      },
+      () => setVideoRewardBusy(false),
+    );
+  }, [videoRewardBusy]);
+
+  useEffect(() => {
+    if (!gameOver) return;
+    prepareReviveRewardedAd();
+  }, [gameOver]);
+
+  const applyReviveAfterAd = useCallback(() => {
+    const nowTs = Date.now();
+    const s = sim.current;
+    s.hitGraceUntil = nowTs + 2400;
+    const oa = s.obstacles;
+    const obsPool = obstaclePoolRef.current;
+    let ow = 0;
+    for (let i = 0; i < oa.length; i++) {
+      const ob = oa[i];
+      if (collides(s.playerY, s.playerX, ob)) {
+        obsPool.release(ob);
+        continue;
+      }
+      if (ow !== i) oa[ow] = ob;
+      ow++;
+    }
+    oa.length = ow;
+    lastFramePerfRef.current = perfNow();
+    getAudioManager().onRunRestart();
+    setGameOver(false);
+    setUiEpoch((e) => e + 1);
   }, []);
 
-  const handleBuyOrEquip = useCallback((skinId: string, price: number, variant: ShipVariant, hull: string, sail: string) => {
-    const s = sim.current;
-    const owned = new Set(s.ownedSkins);
-    if (owned.has(skinId)) {
-      s.currentSkin = skinId;
-      AsyncStorage.setItem(CURRENT_SKIN_KEY, skinId).catch(() => {});
-      setUiEpoch((e) => e + 1);
-      return;
-    }
-    if (s.coinsCollected >= price) {
-      s.coinsCollected -= price;
-      const next = [...owned, skinId];
-      s.ownedSkins = next;
-      s.currentSkin = skinId;
-      AsyncStorage.setItem(OWNED_SKINS_KEY, JSON.stringify(next)).catch(() => {});
-      AsyncStorage.setItem(CURRENT_SKIN_KEY, skinId).catch(() => {});
-      setUiEpoch((e) => e + 1);
-    }
-  }, []);
+  const handleReviveVideo = useCallback(() => {
+    if (reviveVideoBusy || !gameOver) return;
+    getAudioManager().playButtonTap();
+    setReviveVideoBusy(true);
+    showReviveRewardedAd(applyReviveAfterAd, () => setReviveVideoBusy(false));
+  }, [reviveVideoBusy, gameOver, applyReviveAfterAd]);
+
+  const handleBuyOrEquip = useCallback(
+    (
+      skinId: string,
+      price: number,
+      variant: ShipVariant,
+      hull: string,
+      sail: string,
+    ) => {
+      const s = sim.current;
+      const owned = new Set(s.ownedSkins);
+      const row = SHOP_SKIN_ROWS.find((r) => r.id === skinId);
+      if (!owned.has(skinId) && row?.milestone) {
+        const bestD = Math.max(
+          bestRunStatsRef.current.distanceM,
+          Math.floor(s.runDistance),
+        );
+        const bestC = Math.max(
+          bestRunStatsRef.current.runCoins,
+          s.coinsEarnedThisRun,
+        );
+        if (!skinMilestoneSatisfied(row, bestD, bestC)) return;
+        const next = [...owned, skinId];
+        s.ownedSkins = next;
+        s.currentSkin = skinId;
+        AsyncStorage.setItem(OWNED_SKINS_KEY, JSON.stringify(next)).catch(
+          () => {},
+        );
+        AsyncStorage.setItem(CURRENT_SKIN_KEY, skinId).catch(() => {});
+        setUiEpoch((e) => e + 1);
+        return;
+      }
+      if (owned.has(skinId)) {
+        s.currentSkin = skinId;
+        AsyncStorage.setItem(CURRENT_SKIN_KEY, skinId).catch(() => {});
+        setUiEpoch((e) => e + 1);
+        return;
+      }
+      if (row?.milestone) return;
+      if (s.coinsCollected >= price) {
+        s.coinsCollected -= price;
+        persistSavedCoins(s.coinsCollected);
+        const next = [...owned, skinId];
+        s.ownedSkins = next;
+        s.currentSkin = skinId;
+        AsyncStorage.setItem(OWNED_SKINS_KEY, JSON.stringify(next)).catch(
+          () => {},
+        );
+        AsyncStorage.setItem(CURRENT_SKIN_KEY, skinId).catch(() => {});
+        setUiEpoch((e) => e + 1);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (gameOver) return;
 
     const loop = () => {
       const s = sim.current;
+
+      if (!walletHydratedRef.current) {
+        rafRef.current = requestAnimationFrame(loop);
+        return;
+      }
 
       // If paused or holding finger on ship (freeze), do not advance simulation; just keep the UI responsive
       if (s.paused || s.holdFreeze) {
@@ -702,7 +1028,10 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
       }
 
       const nowPerf = perfNow();
-      const dtMs = Math.min(Math.max(nowPerf - lastFramePerfRef.current, 0.001), MAX_DELTA_MS);
+      const dtMs = Math.min(
+        Math.max(nowPerf - lastFramePerfRef.current, 0.001),
+        MAX_DELTA_MS,
+      );
       lastFramePerfRef.current = nowPerf;
 
       const nowTs = Date.now();
@@ -711,563 +1040,657 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
       let fatalDied = false;
 
       for (let _si = 0; _si < ks.length; _si++) {
-      const k = ks[_si];
-      s.runTick += k;
-      s.survivalFrames += k;
+        const k = ks[_si];
+        s.runTick += k;
+        s.survivalFrames += k;
 
-      const elapsedSec = runElapsedSeconds(s.runTick);
-      const zone = getRunnerZoneByDistance(s.runDistance);
-      const patternPhase = patternPhaseFromZoneIndex(zone.index);
-      const coinPatternPhase = coinPatternPhaseFromZone(zone.index, zone.coinRiskMult);
-      const progressScore = Math.floor(s.runDistance) + s.pickupScore;
-
-      const phaseIdxForDanger = patternPhase;
-      const dz = stepDangerZone(
-        {
-          warnEndAt: s.dangerWarnEndAt,
-          burstEndAt: s.dangerBurstEndAt,
-          nextEligibleAt: s.dangerNextEligibleAt,
-        },
-        { now: nowTs, score: progressScore, feverActive: s.feverActive, phaseIndex: phaseIdxForDanger }
-      );
-      s.dangerWarnEndAt = dz.next.warnEndAt;
-      s.dangerBurstEndAt = dz.next.burstEndAt;
-      s.dangerNextEligibleAt = dz.next.nextEligibleAt;
-      s.pickupScore += dz.clearBonus;
-
-      const comboTier = survivalComboTier(s.survivalFrames);
-      const pressure = resolveRunPressure(
-        {
-          score: Math.floor(s.runDistance) + s.pickupScore,
-          runTick: s.runTick,
-          speed: s.speed,
-          now: nowTs,
-          dangerWarnEndAt: s.dangerWarnEndAt,
-          dangerBurstEndAt: s.dangerBurstEndAt,
-          feverActive: s.feverActive,
-          feverMultiplier: s.feverMultiplier,
-          survivalComboTier: comboTier,
-        },
-        { phaseIndexOverride: patternPhase }
-      );
-      s.dangerVisual = pressure.dangerVisual;
-      const tensionD = pressure.tension01;
-
-      s.velocity -= GRAVITY * k;
-      s.playerY += s.velocity * k;
-      if (s.playerY < 0) {
-        s.playerY = 0;
-        s.velocity = 0;
-      }
-
-      const desiredLeft = clampPlayerLeft(s.playerXTarget);
-      const t = 1 - Math.pow(1 - HERO_FOLLOW_LERP, k);
-      let nextPX = s.playerX + (desiredLeft - s.playerX) * t;
-      const maxStep = HERO_MAX_STEP_PER_FRAME * k;
-      const step = nextPX - s.playerX;
-      if (Math.abs(step) > maxStep) {
-        nextPX = s.playerX + Math.sign(step) * maxStep;
-      }
-      s.playerX = clampPlayerLeft(nextPX);
-      if (!isDraggingRef.current && Math.abs(s.playerXTarget - s.playerX) < 0.4) {
-        s.playerXTarget = s.playerX;
-      }
-
-      // Update press shake timer
-      if (s.shakeT > 0) {
-        s.shakeT -= k;
-        if (s.shakeT < 0) s.shakeT = 0;
-        s.shakePhase += 0.6 * k;
-      }
-      if (s.activatePulseT > 0) {
-        s.activatePulseT -= k;
-        if (s.activatePulseT < 0) s.activatePulseT = 0;
-      }
-
-      const slowMul = nowTs < s.slowTimeUntil ? 0.5 : 1;
-      const effObsBase = s.speed * (nowTs < s.boostUntil ? 1.5 : 1) * slowMul * pressure.fallSpeedMul;
-      const obsArr = s.obstacles;
-      for (let i = 0; i < obsArr.length; i++) {
-        const obs = obsArr[i];
-        let verticalSpeed = effObsBase;
-        if (obs.type === "fast") verticalSpeed *= 1.25 + tensionD * 0.35;
-        obs.y += verticalSpeed * k;
-        if (obs.type === "zigzag") {
-          const phase =
-            (obs.driftPhase ?? 0) + (0.06 + tensionD * 0.06) * (effObsBase / MAX_SPEED_CAP) * 10 * k;
-          obs.driftPhase = phase;
-          obs.x += Math.sin(phase) * (2.5 + tensionD * 3.0);
-        }
-      }
-      let oWrite = 0;
-      const obsPool = obstaclePoolRef.current;
-      /** Drop obstacles as soon as nothing is visible below the fold (tighter than coins/powerups). */
-      for (let i = 0; i < obsArr.length; i++) {
-        if (obsArr[i].y < SCREEN_HEIGHT) {
-          if (oWrite !== i) obsArr[oWrite] = obsArr[i];
-          oWrite++;
-        } else {
-          obsPool.release(obsArr[i]);
-        }
-      }
-      obsArr.length = oWrite;
-
-      const patternCoinScratch = s.patternCoinScratch;
-      patternCoinScratch.length = 0;
-
-      s.spawnCooldown -= k;
-      if (s.spawnCooldown <= 0) {
-        const burstActive = pressure.dangerBurstActive;
-        const phaseMul =
-          DIFFICULTY_PHASES[patternPhase].spawnIntervalMul * (burstActive ? DANGER_SPAWN_COMPRESSION : 1);
-        const runnerInt = obstacleSpawnIntervalFrames(elapsedSec);
-        const blended = Math.max(
-          RUNNER_SPAWN_MIN_INTERVAL_FRAMES,
-          Math.floor((runnerInt * phaseMul) / Math.max(0.55, zone.obstacleRateMult))
+        const elapsedSec = runElapsedSeconds(s.runTick);
+        const zone = getRunnerZoneByDistance(s.runDistance);
+        const patternPhase = patternPhaseFromZoneIndex(zone.index);
+        const coinPatternPhase = coinPatternPhaseFromZone(
+          zone.index,
+          zone.coinRiskMult,
         );
-        s.spawnCooldown = blended + Math.random() * Math.max(6, blended * 0.14);
+        const progressScore = Math.floor(s.runDistance) + s.pickupScore;
 
-        if (obsArr.length < MAX_ACTIVE_OBSTACLES) {
-        const patternId = pickObstaclePattern(patternPhase, Math.random);
-        const specs = materializeObstaclePattern(patternId, patternPhase, Math.random);
-        if (specs.length > 0) s.lastHazardLane = specs[0].lane;
-        for (const sp of specs) {
-          if (obsArr.length >= MAX_ACTIVE_OBSTACLES) break;
-          const baseSize =
-            OBSTACLE_SIZE_MIN + Math.random() * (OBSTACLE_SIZE_MAX - OBSTACLE_SIZE_MIN);
-          const size = baseSize * (1 + tensionD * 0.18);
-          const type = sp.type;
-          const visual = sp.visual;
-          const color =
-            type === "fast"
-              ? "#ff3b3b"
-              : type === "wide"
-                ? "#00d4ff"
-                : type === "zigzag"
-                  ? "#ff7b00"
-                  : "#9b59ff";
-          const width = type === "wide" ? size * (1.22 + tensionD * 0.16) : size;
-          const { w: visW, h: visH } = obstacleHitSize(visual, width, type === "wide");
-          const rHit = obstacleCollisionRect({ x: 0, y: 0, size: width, type, visual });
-          const startX = LANE_GEOM.obstacleLeftFromLane(sp.lane, visW);
-          const ob = obsPool.acquire();
-          ob.id = allocEntityId();
-          ob.x = startX;
-          ob.y = -size - 20 + sp.yExtra;
-          ob.size = width;
-          ob.type = type;
-          ob.visual = visual;
-          ob.color = color;
-          ob.lane = sp.lane;
-          ob.visW = visW;
-          ob.visH = visH;
-          ob.hitOffX = rHit.x;
-          ob.hitOffY = rHit.y;
-          ob.hitW = rHit.w;
-          ob.hitH = rHit.h;
-          ob.driftPhase = Math.random() * Math.PI * 2;
-          obsArr.push(ob);
+        const phaseIdxForDanger = patternPhase;
+        const dz = stepDangerZone(
+          {
+            warnEndAt: s.dangerWarnEndAt,
+            burstEndAt: s.dangerBurstEndAt,
+            nextEligibleAt: s.dangerNextEligibleAt,
+          },
+          {
+            now: nowTs,
+            score: progressScore,
+            feverActive: s.feverActive,
+            phaseIndex: phaseIdxForDanger,
+          },
+        );
+        s.dangerWarnEndAt = dz.next.warnEndAt;
+        s.dangerBurstEndAt = dz.next.burstEndAt;
+        s.dangerNextEligibleAt = dz.next.nextEligibleAt;
+        s.pickupScore += dz.clearBonus;
+
+        const comboTier = survivalComboTier(s.survivalFrames);
+        const pressure = resolveRunPressure(
+          {
+            score: Math.floor(s.runDistance) + s.pickupScore,
+            runTick: s.runTick,
+            speed: s.speed,
+            now: nowTs,
+            dangerWarnEndAt: s.dangerWarnEndAt,
+            dangerBurstEndAt: s.dangerBurstEndAt,
+            feverActive: s.feverActive,
+            feverMultiplier: s.feverMultiplier,
+            survivalComboTier: comboTier,
+          },
+          { phaseIndexOverride: patternPhase },
+        );
+        s.dangerVisual = pressure.dangerVisual;
+        const tensionD = pressure.tension01;
+
+        s.velocity -= GRAVITY * k;
+        s.playerY += s.velocity * k;
+        if (s.playerY < 0) {
+          s.playerY = 0;
+          s.velocity = 0;
         }
 
-        if (patternId === "lowBarrierThenCoinTrail" && specs[0]) {
-          const hazardLane = specs[0].lane;
-          const spacing = COIN_SPACING_BASE + s.speed * COIN_SPACING_SPEED_FACTOR;
-          const bonus = materializeCoinPattern({
-            kind: "straight",
+        const desiredLeft = clampPlayerLeft(s.playerXTarget);
+        const t = 1 - Math.pow(1 - HERO_FOLLOW_LERP, k);
+        let nextPX = s.playerX + (desiredLeft - s.playerX) * t;
+        const maxStep = HERO_MAX_STEP_PER_FRAME * k;
+        const step = nextPX - s.playerX;
+        if (Math.abs(step) > maxStep) {
+          nextPX = s.playerX + Math.sign(step) * maxStep;
+        }
+        s.playerX = clampPlayerLeft(nextPX);
+        if (
+          !isDraggingRef.current &&
+          Math.abs(s.playerXTarget - s.playerX) < 0.4
+        ) {
+          s.playerXTarget = s.playerX;
+        }
+
+        // Update press shake timer
+        if (s.shakeT > 0) {
+          s.shakeT -= k;
+          if (s.shakeT < 0) s.shakeT = 0;
+          s.shakePhase += 0.6 * k;
+        }
+        const slowMul = nowTs < s.slowTimeUntil ? 0.5 : 1;
+        const effObsBase =
+          s.speed *
+          (nowTs < s.boostUntil ? 1.5 : 1) *
+          slowMul *
+          pressure.fallSpeedMul;
+        const obsArr = s.obstacles;
+        for (let i = 0; i < obsArr.length; i++) {
+          const obs = obsArr[i];
+          let verticalSpeed = effObsBase;
+          if (obs.type === "fast") verticalSpeed *= 1.25 + tensionD * 0.35;
+          obs.y += verticalSpeed * k;
+          if (obs.type === "zigzag") {
+            const phase =
+              (obs.driftPhase ?? 0) +
+              (0.06 + tensionD * 0.06) * (effObsBase / MAX_SPEED_CAP) * 10 * k;
+            obs.driftPhase = phase;
+            obs.x += Math.sin(phase) * (2.5 + tensionD * 3.0);
+          }
+        }
+        const obsPool = obstaclePoolRef.current;
+        compactObstaclesOffScreen(
+          obsArr,
+          (o) => obsPool.release(o),
+          SCREEN_WIDTH,
+          SCREEN_HEIGHT,
+          GROUND_HEIGHT,
+        );
+
+        const patternCoinScratch = s.patternCoinScratch;
+        patternCoinScratch.length = 0;
+
+        s.spawnCooldown -= k;
+        if (s.spawnCooldown <= 0) {
+          const burstActive = pressure.dangerBurstActive;
+          const phaseMul =
+            DIFFICULTY_PHASES[patternPhase].spawnIntervalMul *
+            (burstActive ? DANGER_SPAWN_COMPRESSION : 1);
+          const runnerInt = obstacleSpawnIntervalFrames(elapsedSec);
+          const zObs = zoneObstacleRateForSpawn(zone.obstacleRateMult);
+          const blended = Math.max(
+            RUNNER_SPAWN_MIN_INTERVAL_FRAMES,
+            Math.floor((runnerInt * phaseMul) / Math.max(0.55, zObs)),
+          );
+          const inViewport = () =>
+            countObstaclesInPlayViewport(SCREEN_WIDTH, SCREEN_HEIGHT, obsArr);
+
+          if (inViewport() >= MAX_ON_SCREEN_OBSTACLES) {
+            s.spawnCooldown = 10 + Math.random() * Math.max(8, blended * 0.22);
+          } else {
+            s.spawnCooldown =
+              blended + Math.random() * Math.max(6, blended * 0.14);
+
+            if (obsArr.length < MAX_ACTIVE_OBSTACLES) {
+              const patternId = pickObstaclePattern(patternPhase, Math.random);
+              const specs = materializeObstaclePattern(
+                patternId,
+                patternPhase,
+                Math.random,
+              );
+              if (specs.length > 0) s.lastHazardLane = specs[0].lane;
+              for (const sp of specs) {
+                if (obsArr.length >= MAX_ACTIVE_OBSTACLES) break;
+                if (inViewport() >= MAX_ON_SCREEN_OBSTACLES) break;
+                const baseSize =
+                  OBSTACLE_SIZE_MIN +
+                  Math.random() * (OBSTACLE_SIZE_MAX - OBSTACLE_SIZE_MIN);
+                const size = baseSize * (1 + tensionD * 0.18);
+                const type = sp.type;
+                const visual = sp.visual;
+                const width =
+                  type === "wide" ? size * (1.22 + tensionD * 0.16) : size;
+                const { w: visW, h: visH } = obstacleHitSize(
+                  visual,
+                  width,
+                  type === "wide",
+                );
+                const rHit = obstacleCollisionRect({
+                  x: 0,
+                  y: 0,
+                  size: width,
+                  type,
+                  visual,
+                });
+                const startX = LANE_GEOM.obstacleLeftFromLane(sp.lane, visW);
+                const ob = obsPool.acquire();
+                ob.id = allocEntityId();
+                ob.x = startX;
+                ob.y = -size - 20 + sp.yExtra;
+                ob.size = width;
+                ob.type = type;
+                ob.visual = visual;
+                ob.lane = sp.lane;
+                ob.visW = visW;
+                ob.visH = visH;
+                ob.hitOffX = rHit.x;
+                ob.hitOffY = rHit.y;
+                ob.hitW = rHit.w;
+                ob.hitH = rHit.h;
+                ob.driftPhase = Math.random() * Math.PI * 2;
+                obsArr.push(ob);
+              }
+
+              if (patternId === "lowBarrierThenCoinTrail" && specs[0]) {
+                const hazardLane = specs[0].lane;
+                const spacing =
+                  COIN_SPACING_BASE + s.speed * COIN_SPACING_SPEED_FACTOR;
+                const bonus = materializeCoinPattern({
+                  kind: "straight",
+                  phaseIndex: coinPatternPhase,
+                  screenW: SCREEN_WIDTH,
+                  coinSize: COIN_SIZE,
+                  playerW: PLAYER_WIDTH,
+                  coinSpacing: spacing * 1.05,
+                  preferredLane: (hazardLane + 1) % 3,
+                  hazardLane,
+                  laneMargin: LANE_MARGIN,
+                  rng: Math.random,
+                });
+                const cPoolPat = coinPoolRef.current;
+                for (let i = 0; i < bonus.length; i++) {
+                  const c = cPoolPat.acquire();
+                  c.id = allocEntityId();
+                  c.x = bonus[i].x;
+                  c.y = bonus[i].y;
+                  c.size = bonus[i].size;
+                  patternCoinScratch.push(c);
+                }
+              }
+
+              if (
+                inViewport() < MAX_ON_SCREEN_OBSTACLES &&
+                obsArr.length < MAX_ACTIVE_OBSTACLES &&
+                patternPhase >= 2 &&
+                Math.random() <
+                  pressure.duoSpawnChance * 0.45 * Math.min(1.2, zObs / 1.15)
+              ) {
+                const extra = materializeObstaclePattern(
+                  "singleBlock",
+                  patternPhase,
+                  Math.random,
+                )[0];
+                if (extra && inViewport() < MAX_ON_SCREEN_OBSTACLES) {
+                  const baseSize =
+                    OBSTACLE_SIZE_MIN +
+                    Math.random() * (OBSTACLE_SIZE_MAX - OBSTACLE_SIZE_MIN);
+                  const size = baseSize * (1 + tensionD * 0.12);
+                  const width =
+                    extra.type === "wide"
+                      ? size * (1.2 + tensionD * 0.12)
+                      : size;
+                  const { w: visW2, h: visH2 } = obstacleHitSize(
+                    extra.visual,
+                    width,
+                    extra.type === "wide",
+                  );
+                  const rHit2 = obstacleCollisionRect({
+                    x: 0,
+                    y: 0,
+                    size: width,
+                    type: extra.type,
+                    visual: extra.visual,
+                  });
+                  const ob2 = obsPool.acquire();
+                  ob2.id = allocEntityId();
+                  ob2.x = LANE_GEOM.obstacleLeftFromLane(extra.lane, visW2);
+                  ob2.y = -size - 62;
+                  ob2.size = width;
+                  ob2.type = extra.type;
+                  ob2.visual = extra.visual;
+                  ob2.lane = extra.lane;
+                  ob2.visW = visW2;
+                  ob2.visH = visH2;
+                  ob2.hitOffX = rHit2.x;
+                  ob2.hitOffY = rHit2.y;
+                  ob2.hitW = rHit2.w;
+                  ob2.hitH = rHit2.h;
+                  ob2.driftPhase = Math.random() * Math.PI * 2;
+                  obsArr.push(ob2);
+                }
+              }
+            }
+          }
+        }
+
+        if (s.nearMissCooldown > 0) {
+          s.nearMissCooldown -= k;
+          if (s.nearMissCooldown < 0) s.nearMissCooldown = 0;
+        }
+
+        const pLeft = s.playerX;
+        const pRight = s.playerX + PLAYER_WIDTH;
+        const pTop =
+          SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY + PLAYER_HEIGHT);
+        const pBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY);
+        const canDie = nowTs >= s.hitGraceUntil && nowTs >= s.ghostPhaseUntil;
+        const scanNearMiss = s.nearMissCooldown === 0;
+        const playerLane = nearestLaneIndex(s.playerX);
+        let died = false;
+        if (canDie || scanNearMiss) {
+          let hit = false;
+          let nearHit = false;
+          forEachObstacleInVerticalBand(
+            obsArr,
+            pTop,
+            pBottom,
+            150,
+            (obs) => {
+              if (!obstacleBroadphaseX(obs, pLeft, pRight)) return;
+              if (scanNearMiss && !nearHit) {
+                if (
+                  nearMissCheck({
+                    pLeft,
+                    pRight,
+                    pTop,
+                    pBottom,
+                    oLeft: obs.x,
+                    oRight: obs.x + obs.visW,
+                    oTop: obs.y,
+                    oBottom: obs.y + obs.visH,
+                  })
+                ) {
+                  const nm = Math.floor(
+                    nearMissScore(pressure.phaseIndex) *
+                      pressure.feverScoreMult *
+                      (nowTs < s.x2Until ? 2 : 1),
+                  );
+                  s.pickupScore += nm;
+                  s.feverMeter = feverMeterAddClamped(
+                    s.feverMeter,
+                    FEVER_METER_PER_NEAR_MISS,
+                  );
+                  s.nearMissCooldown = NEAR_MISS_COOLDOWN_FRAMES;
+                  nearHit = true;
+                }
+              }
+              if (canDie && !hit && collides(s.playerY, s.playerX, obs)) {
+                hit = true;
+              }
+            },
+            (obs) =>
+              obstacleLaneRelevantForPlayer(obs.lane, obs.type, playerLane),
+          );
+          if (canDie) {
+            died = hit;
+          }
+        }
+
+        const effSpeed =
+          s.speed *
+          (nowTs < s.boostUntil ? 1.75 : 1) *
+          slowMul *
+          pressure.fallSpeedMul;
+        const puArr = s.powerUps;
+        for (let i = 0; i < puArr.length; i++) {
+          const pu = puArr[i];
+          pu.y += effSpeed * 0.95 * k;
+          if (nowTs < s.magnetUntil) {
+            const px = s.playerX + PLAYER_WIDTH / 2;
+            const py =
+              SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY + PLAYER_HEIGHT / 2);
+            const ox = pu.x + pu.size / 2;
+            const oy = pu.y + pu.size / 2;
+            const dx = px - ox;
+            const dy = py - oy;
+            const dist = Math.max(1, Math.hypot(dx, dy));
+            const radius = 280;
+            if (dist < radius) {
+              const pull = (1 - dist / radius) * (10.0 + tensionD * 6.0);
+              pu.x += (dx / dist) * pull * k;
+              pu.y += (dy / dist) * pull * k;
+              if (dist < 20) {
+                pu.x = px - pu.size / 2;
+                pu.y = py - pu.size / 2;
+              }
+            }
+          }
+        }
+        const powPool = powerPoolRef.current;
+        compactPowerUpsOffScreen(
+          puArr,
+          (p) => powPool.release(p),
+          SCREEN_WIDTH,
+          SCREEN_HEIGHT,
+          GROUND_HEIGHT,
+        );
+
+        const coinArr = s.coins;
+        const cPoolMain = coinPoolRef.current;
+        for (let d = 0; d < patternCoinScratch.length; d++) {
+          if (coinArr.length >= MAX_ACTIVE_COINS) break;
+          coinArr.push(patternCoinScratch[d]);
+        }
+        for (let i = 0; i < coinArr.length; i++) {
+          const co = coinArr[i];
+          co.y += effSpeed * k;
+          if (nowTs < s.magnetUntil) {
+            const px = s.playerX + PLAYER_WIDTH / 2;
+            const py =
+              SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY + PLAYER_HEIGHT / 2);
+            const ox = co.x + co.size / 2;
+            const oy = co.y + co.size / 2;
+            const dx = px - ox;
+            const dy = py - oy;
+            const dist = Math.max(1, Math.hypot(dx, dy));
+            const radius = 320;
+            if (dist < radius) {
+              const pull = (1 - dist / radius) * (12.0 + tensionD * 6.0);
+              co.x += (dx / dist) * pull * k;
+              co.y += (dy / dist) * pull * k;
+              if (dist < 24) {
+                co.x = px - co.size / 2;
+                co.y = py - co.size / 2;
+              }
+            }
+          }
+        }
+        compactCoinsOffScreen(
+          coinArr,
+          (c) => cPoolMain.release(c),
+          SCREEN_WIDTH,
+          SCREEN_HEIGHT,
+          GROUND_HEIGHT,
+        );
+
+        s.powerSpawnCooldown -= k;
+        if (s.powerSpawnCooldown <= 0) {
+          s.powerSpawnCooldown = Math.max(
+            115,
+            Math.floor((240 + Math.random() * 340) * pressure.powerCooldownMul),
+          );
+          if (puArr.length < MAX_ACTIVE_POWERUPS) {
+            const type = pickPowerUpKind();
+            const size = POWERUP_WORLD_SIZE;
+            const startX = Math.max(
+              8,
+              Math.min(SCREEN_WIDTH - size - 8, Math.random() * SCREEN_WIDTH),
+            );
+            const pu = powPool.acquire();
+            pu.id = allocEntityId();
+            pu.x = startX;
+            pu.y = -size - 12;
+            pu.size = size;
+            pu.type = type;
+            puArr.push(pu);
+          }
+        }
+
+        const baseCurve = runnerSpeedFromElapsedSec(elapsedSec);
+        const targetSpeed = Math.min(
+          MAX_SPEED_CAP,
+          Math.max(RUNNER_START_SPEED, baseCurve * zone.speedMult),
+        );
+        const speedLerp = Math.min(1, ZONE_SPEED_LERP * k);
+        s.speed += (targetSpeed - s.speed) * speedLerp;
+        const stepWallMs = stepWallMsForK(k);
+        s.runDistance +=
+          s.speed * RUN_DISTANCE_PER_SPEED_SECOND * (stepWallMs / 1000);
+
+        if (!s.feverActive) {
+          s.feverMeter = feverMeterPassiveTick(
+            s.feverMeter,
+            false,
+            pressure.tension01,
+          );
+          const si = Math.floor(s.survivalFrames);
+          for (let i = s.lastSurvivalSi + 1; i <= si; i++) {
+            if (i > 0 && i % FEVER_METER_SURVIVAL_CHUNK_FRAMES === 0) {
+              s.feverMeter = feverMeterAddClamped(
+                s.feverMeter,
+                FEVER_METER_SURVIVAL_CHUNK,
+              );
+            }
+          }
+          s.lastSurvivalSi = si;
+          if (s.feverMeter >= FEVER_METER_MAX) {
+            const f = startFever(pressure.phaseIndex, comboTier);
+            s.feverActive = true;
+            s.feverMultiplier = f.mult;
+            s.feverDurationMs = f.until;
+            s.feverUntil = nowTs + f.until;
+            s.feverIntroUntil = nowTs + 900;
+            s.feverMeter = FEVER_METER_MAX;
+          }
+        } else {
+          const remain = Math.max(0, s.feverUntil - nowTs);
+          const denom = Math.max(1, s.feverDurationMs);
+          s.feverMeter = Math.max(0, (remain / denom) * FEVER_METER_MAX);
+          if (remain <= 0) {
+            s.feverActive = false;
+            s.feverMultiplier = 1;
+            s.feverUntil = 0;
+            s.feverDurationMs = 0;
+            s.feverMeter = 0;
+          }
+        }
+
+        if (died) {
+          // Shield absorbs one hit: clear shield, remove overlapping obstacles, and grant brief invulnerability
+          if (nowTs < s.shieldUntil) {
+            s.shieldUntil = 0;
+            s.hitGraceUntil = nowTs + 600;
+            const oa = s.obstacles;
+            let ow = 0;
+            for (let i = 0; i < oa.length; i++) {
+              const ob = oa[i];
+              if (collides(s.playerY, s.playerX, ob)) {
+                obsPool.release(ob);
+                continue;
+              }
+              if (ow !== i) oa[ow] = ob;
+              ow++;
+            }
+            oa.length = ow;
+            died = false;
+          }
+        }
+        if (died) fatalDied = true;
+
+        // Collect power-ups (compact in place — no per-hit filter allocations)
+        let puCollectW = 0;
+        for (let pi = 0; pi < s.powerUps.length; pi++) {
+          const pu = s.powerUps[pi];
+          if (collidesPower(s.playerY, s.playerX, pu)) {
+            const { type } = pu;
+            const d = POWERUP_DEFS[type];
+            s.pickupFlashKind = type;
+            s.pickupFlashToken += 1;
+            switch (type) {
+              case "shield":
+                s.shieldUntil = nowTs + d.durationMs;
+                break;
+              case "multiplier":
+                s.x2Until = nowTs + d.durationMs;
+                break;
+              case "magnet":
+                s.magnetUntil = nowTs + d.durationMs;
+                break;
+              case "boost":
+                s.boostUntil = nowTs + d.durationMs;
+                break;
+              case "slowTime":
+                s.slowTimeUntil = nowTs + d.durationMs;
+                break;
+              case "ghostPhase":
+                s.ghostPhaseUntil = nowTs + d.durationMs;
+                break;
+              case "coinBurst": {
+                const burst = 12 + Math.floor(Math.random() * 9);
+                s.coinsCollected += burst;
+                s.coinsEarnedThisRun += burst;
+                scheduleCoinPersist();
+                s.pickupScore += Math.floor(
+                  (160 + Math.floor(Math.random() * 140)) *
+                    pressure.feverScoreMult *
+                    (nowTs < s.x2Until ? 2 : 1),
+                );
+                break;
+              }
+              default:
+                break;
+            }
+            getAudioManager().playPowerup();
+            if (!s.feverActive) {
+              s.feverMeter = feverMeterAddClamped(
+                s.feverMeter,
+                FEVER_METER_PER_POWER_PICKUP,
+              );
+            }
+            powPool.release(pu);
+            continue;
+          }
+          s.powerUps[puCollectW++] = pu;
+        }
+        s.powerUps.length = puCollectW;
+
+        s.coinSpawnCooldown -= k;
+        if (s.coinSpawnCooldown <= 0 && s.coins.length < MAX_ACTIVE_COINS) {
+          s.coinSpawnCooldown = Math.max(
+            58,
+            Math.floor(
+              ((145 + Math.random() * 130) * pressure.coinCooldownMul) /
+                Math.max(0.65, zone.coinRiskMult),
+            ),
+          );
+          const spacing =
+            COIN_SPACING_BASE + s.speed * COIN_SPACING_SPEED_FACTOR;
+          const kind = pickCoinPattern(coinPatternPhase, Math.random);
+          const spawned = materializeCoinPattern({
+            kind,
             phaseIndex: coinPatternPhase,
             screenW: SCREEN_WIDTH,
             coinSize: COIN_SIZE,
             playerW: PLAYER_WIDTH,
-            coinSpacing: spacing * 1.05,
-            preferredLane: (hazardLane + 1) % 3,
-            hazardLane,
+            coinSpacing: spacing,
+            preferredLane: nearestLaneIndex(s.playerX),
+            hazardLane: s.lastHazardLane,
             laneMargin: LANE_MARGIN,
             rng: Math.random,
           });
-          const cPoolPat = coinPoolRef.current;
-          for (let i = 0; i < bonus.length; i++) {
-            const c = cPoolPat.acquire();
-            c.id = allocEntityId();
-            c.x = bonus[i].x;
-            c.y = bonus[i].y;
-            c.size = bonus[i].size;
-            patternCoinScratch.push(c);
+          for (let si = 0; si < spawned.length; si++) {
+            if (s.coins.length >= MAX_ACTIVE_COINS) break;
+            const row = spawned[si];
+            const cn = cPoolMain.acquire();
+            cn.id = allocEntityId();
+            cn.x = row.x;
+            cn.y = row.y;
+            cn.size = row.size;
+            s.coins.push(cn);
           }
         }
 
-        if (
-          obsArr.length < MAX_ACTIVE_OBSTACLES &&
-          patternPhase >= 2 &&
-          Math.random() < pressure.duoSpawnChance * 0.45 * Math.min(1.2, zone.obstacleRateMult / 1.15)
-        ) {
-          const extra = materializeObstaclePattern("singleBlock", patternPhase, Math.random)[0];
-          if (extra) {
-            const baseSize =
-              OBSTACLE_SIZE_MIN + Math.random() * (OBSTACLE_SIZE_MAX - OBSTACLE_SIZE_MIN);
-            const size = baseSize * (1 + tensionD * 0.12);
-            const width = extra.type === "wide" ? size * (1.2 + tensionD * 0.12) : size;
-            const color =
-              extra.type === "fast"
-                ? "#ff3b3b"
-                : extra.type === "wide"
-                  ? "#00d4ff"
-                  : extra.type === "zigzag"
-                    ? "#ff7b00"
-                    : "#9b59ff";
-            const { w: visW2, h: visH2 } = obstacleHitSize(extra.visual, width, extra.type === "wide");
-            const rHit2 = obstacleCollisionRect({ x: 0, y: 0, size: width, type: extra.type, visual: extra.visual });
-            const ob2 = obsPool.acquire();
-            ob2.id = allocEntityId();
-            ob2.x = LANE_GEOM.obstacleLeftFromLane(extra.lane, visW2);
-            ob2.y = -size - 62;
-            ob2.size = width;
-            ob2.type = extra.type;
-            ob2.visual = extra.visual;
-            ob2.color = color;
-            ob2.lane = extra.lane;
-            ob2.visW = visW2;
-            ob2.visH = visH2;
-            ob2.hitOffX = rHit2.x;
-            ob2.hitOffY = rHit2.y;
-            ob2.hitW = rHit2.w;
-            ob2.hitH = rHit2.h;
-            ob2.driftPhase = Math.random() * Math.PI * 2;
-            obsArr.push(ob2);
-          }
+        if (s.coins.length > Math.max(10, MAX_ACTIVE_COINS - 2)) {
+          dedupeCoinsInPlace(s.coins, (c) => coinPoolRef.current.release(c));
         }
-        }
-      }
 
-      if (s.nearMissCooldown > 0) {
-        s.nearMissCooldown -= k;
-        if (s.nearMissCooldown < 0) s.nearMissCooldown = 0;
-      }
-
-      const pLeft = s.playerX;
-      const pRight = s.playerX + PLAYER_WIDTH;
-      const pTop = SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY + PLAYER_HEIGHT);
-      const pBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY);
-      const canDie = nowTs >= s.hitGraceUntil && nowTs >= s.ghostPhaseUntil;
-      const scanNearMiss = s.nearMissCooldown === 0;
-      const playerLane = nearestLaneIndex(s.playerX);
-      let died = false;
-      if (canDie || scanNearMiss) {
-        let hit = false;
-        let nearHit = false;
-        forEachObstacleInVerticalBand(
-          obsArr,
-          pTop,
-          pBottom,
-          150,
-          (obs) => {
-          if (!obstacleBroadphaseX(obs, pLeft, pRight)) return;
-          if (scanNearMiss && !nearHit) {
-            if (
-              nearMissCheck({
-                pLeft,
-                pRight,
-                pTop,
-                pBottom,
-                oLeft: obs.x,
-                oRight: obs.x + obs.visW,
-                oTop: obs.y,
-                oBottom: obs.y + obs.visH,
-              })
-            ) {
-              const nm = Math.floor(
-                nearMissScore(pressure.phaseIndex) *
-                  pressure.feverScoreMult *
-                  (nowTs < s.x2Until ? 2 : 1)
+        let coinCollectW = 0;
+        for (let ci = 0; ci < s.coins.length; ci++) {
+          const c = s.coins[ci];
+          if (collidesCoin(s.playerY, s.playerX, c)) {
+            s.coinsCollected += 1;
+            s.coinsEarnedThisRun += 1;
+            scheduleCoinPersist();
+            getAudioManager().playCoin();
+            const coinPts = Math.floor(
+              (nowTs < s.x2Until ? 40 : 20) *
+                pressure.feverScoreMult *
+                pressure.comboScoreMult,
+            );
+            s.pickupScore += coinPts;
+            if (!s.feverActive) {
+              s.feverMeter = feverMeterAddClamped(
+                s.feverMeter,
+                FEVER_METER_PER_COIN,
               );
-              s.pickupScore += nm;
-              s.feverMeter = feverMeterAddClamped(s.feverMeter, FEVER_METER_PER_NEAR_MISS);
-              s.nearMissCooldown = NEAR_MISS_COOLDOWN_FRAMES;
-              nearHit = true;
             }
+            cPoolMain.release(c);
+            continue;
           }
-          if (canDie && !hit && collides(s.playerY, s.playerX, obs)) {
-            hit = true;
-          }
-        },
-          (obs) => obstacleLaneRelevantForPlayer(obs.lane, obs.type, playerLane)
-        );
-        if (canDie) {
-          died = hit;
+          s.coins[coinCollectW++] = c;
         }
-      }
+        s.coins.length = coinCollectW;
 
-      const effSpeed = s.speed * (nowTs < s.boostUntil ? 1.75 : 1) * slowMul * pressure.fallSpeedMul;
-      const puArr = s.powerUps;
-      for (let i = 0; i < puArr.length; i++) {
-        const pu = puArr[i];
-        pu.y += effSpeed * 0.95 * k;
-        if (nowTs < s.magnetUntil) {
-          const px = s.playerX + PLAYER_WIDTH / 2;
-          const py = SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY + PLAYER_HEIGHT / 2);
-          const ox = pu.x + pu.size / 2;
-          const oy = pu.y + pu.size / 2;
-          const dx = px - ox;
-          const dy = py - oy;
-          const dist = Math.max(1, Math.hypot(dx, dy));
-          const radius = 280;
-          if (dist < radius) {
-            const pull = (1 - dist / radius) * (10.0 + tensionD * 6.0);
-            pu.x += (dx / dist) * pull * k;
-            pu.y += (dy / dist) * pull * k;
-            if (dist < 20) {
-              pu.x = px - pu.size / 2;
-              pu.y = py - pu.size / 2;
-            }
-          }
-        }
-      }
-      const powPool = powerPoolRef.current;
-      let puW = 0;
-      for (let i = 0; i < puArr.length; i++) {
-        if (puArr[i].y < SCREEN_HEIGHT + ENTITY_CULL_BELOW_SCREEN_PAD) {
-          if (puW !== i) puArr[puW] = puArr[i];
-          puW++;
-        } else {
-          powPool.release(puArr[i]);
-        }
-      }
-      puArr.length = puW;
-
-      const coinArr = s.coins;
-      const cPoolMain = coinPoolRef.current;
-      for (let d = 0; d < patternCoinScratch.length; d++) {
-        if (coinArr.length >= MAX_ACTIVE_COINS) break;
-        coinArr.push(patternCoinScratch[d]);
-      }
-      for (let i = 0; i < coinArr.length; i++) {
-        const co = coinArr[i];
-        co.y += effSpeed * k;
-        if (nowTs < s.magnetUntil) {
-          const px = s.playerX + PLAYER_WIDTH / 2;
-          const py = SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY + PLAYER_HEIGHT / 2);
-          const ox = co.x + co.size / 2;
-          const oy = co.y + co.size / 2;
-          const dx = px - ox;
-          const dy = py - oy;
-          const dist = Math.max(1, Math.hypot(dx, dy));
-          const radius = 320;
-          if (dist < radius) {
-            const pull = (1 - dist / radius) * (12.0 + tensionD * 6.0);
-            co.x += (dx / dist) * pull * k;
-            co.y += (dy / dist) * pull * k;
-            if (dist < 24) {
-              co.x = px - co.size / 2;
-              co.y = py - co.size / 2;
-            }
-          }
-        }
-      }
-      let cKeep = 0;
-      for (let i = 0; i < coinArr.length; i++) {
-        if (coinArr[i].y < SCREEN_HEIGHT + ENTITY_CULL_BELOW_SCREEN_PAD) {
-          if (cKeep !== i) coinArr[cKeep] = coinArr[i];
-          cKeep++;
-        } else {
-          cPoolMain.release(coinArr[i]);
-        }
-      }
-      coinArr.length = cKeep;
-
-      s.powerSpawnCooldown -= k;
-      if (s.powerSpawnCooldown <= 0) {
-        s.powerSpawnCooldown = Math.max(
-          72,
-          Math.floor((125 + Math.random() * 210) * pressure.powerCooldownMul)
-        );
-        if (puArr.length < MAX_ACTIVE_POWERUPS) {
-          const type = pickPowerUpKind();
-          const size = POWERUP_WORLD_SIZE;
-          const startX = Math.max(8, Math.min(SCREEN_WIDTH - size - 8, Math.random() * SCREEN_WIDTH));
-          const pu = powPool.acquire();
-          pu.id = allocEntityId();
-          pu.x = startX;
-          pu.y = -size - 12;
-          pu.size = size;
-          pu.type = type;
-          puArr.push(pu);
-        }
-      }
-
-      const baseCurve = runnerSpeedFromElapsedSec(elapsedSec);
-      const targetSpeed = Math.min(
-        MAX_SPEED_CAP,
-        Math.max(RUNNER_START_SPEED, baseCurve * zone.speedMult)
-      );
-      const speedLerp = Math.min(1, ZONE_SPEED_LERP * k);
-      s.speed += (targetSpeed - s.speed) * speedLerp;
-      const stepWallMs = stepWallMsForK(k);
-      s.runDistance += s.speed * RUN_DISTANCE_PER_SPEED_SECOND * (stepWallMs / 1000);
-
-      if (!s.feverActive) {
-        s.feverMeter = feverMeterPassiveTick(s.feverMeter, false, pressure.tension01);
-        const si = Math.floor(s.survivalFrames);
-        for (let i = s.lastSurvivalSi + 1; i <= si; i++) {
-          if (i > 0 && i % FEVER_METER_SURVIVAL_CHUNK_FRAMES === 0) {
-            s.feverMeter = feverMeterAddClamped(s.feverMeter, FEVER_METER_SURVIVAL_CHUNK);
-          }
-        }
-        s.lastSurvivalSi = si;
-        if (s.feverMeter >= FEVER_METER_MAX) {
-          const f = startFever(pressure.phaseIndex, comboTier);
-          s.feverActive = true;
-          s.feverMultiplier = f.mult;
-          s.feverDurationMs = f.until;
-          s.feverUntil = nowTs + f.until;
-          s.feverIntroUntil = nowTs + 900;
-          s.feverMeter = FEVER_METER_MAX;
-        }
-      } else {
-        const remain = Math.max(0, s.feverUntil - nowTs);
-        const denom = Math.max(1, s.feverDurationMs);
-        s.feverMeter = Math.max(0, (remain / denom) * FEVER_METER_MAX);
-        if (remain <= 0) {
-          s.feverActive = false;
-          s.feverMultiplier = 1;
-          s.feverUntil = 0;
-          s.feverDurationMs = 0;
-          s.feverMeter = 0;
-        }
-      }
-
-      if (died) {
-        // Shield absorbs one hit: clear shield, remove overlapping obstacles, and grant brief invulnerability
-        if (nowTs < s.shieldUntil) {
-          s.shieldUntil = 0;
-          s.hitGraceUntil = nowTs + 600;
-          const oa = s.obstacles;
-          let ow = 0;
-          for (let i = 0; i < oa.length; i++) {
-            const ob = oa[i];
-            if (collides(s.playerY, s.playerX, ob)) {
-              obsPool.release(ob);
-              continue;
-            }
-            if (ow !== i) oa[ow] = ob;
-            ow++;
-          }
-          oa.length = ow;
-          died = false;
-        }
-      }
-      if (died) fatalDied = true;
-
-      // Collect power-ups (compact in place — no per-hit filter allocations)
-      const nowPickup = Date.now();
-      let puCollectW = 0;
-      for (let pi = 0; pi < s.powerUps.length; pi++) {
-        const pu = s.powerUps[pi];
-        if (collidesPower(s.playerY, s.playerX, pu)) {
-          const { type } = pu;
-          const d = POWERUP_DEFS[type];
-          s.pickupFlashKind = type;
-          s.pickupFlashToken += 1;
-          switch (type) {
-            case "shield":
-              s.shieldUntil = nowPickup + d.durationMs;
-              break;
-            case "multiplier":
-              s.x2Until = nowPickup + d.durationMs;
-              break;
-            case "magnet":
-              s.magnetUntil = nowPickup + d.durationMs;
-              break;
-            case "boost":
-              s.boostUntil = nowPickup + d.durationMs;
-              break;
-            case "slowTime":
-              s.slowTimeUntil = nowPickup + d.durationMs;
-              break;
-            case "ghostPhase":
-              s.ghostPhaseUntil = nowPickup + d.durationMs;
-              break;
-            case "coinBurst":
-              s.coinsCollected += 12 + Math.floor(Math.random() * 9);
-              s.pickupScore += Math.floor(
-                (160 + Math.floor(Math.random() * 140)) *
-                  pressure.feverScoreMult *
-                  (nowTs < s.x2Until ? 2 : 1)
-              );
-              break;
-            default:
-              break;
-          }
-          getAudioManager().playPowerup();
-          s.activatePulseT = 12;
-          if (!s.feverActive) {
-            s.feverMeter = feverMeterAddClamped(s.feverMeter, FEVER_METER_PER_POWER_PICKUP);
-          }
-          powPool.release(pu);
-          continue;
-        }
-        s.powerUps[puCollectW++] = pu;
-      }
-      s.powerUps.length = puCollectW;
-
-      s.coinSpawnCooldown -= k;
-      if (s.coinSpawnCooldown <= 0 && s.coins.length < MAX_ACTIVE_COINS) {
-        s.coinSpawnCooldown = Math.max(
-          38,
-          Math.floor(((88 + Math.random() * 95) * pressure.coinCooldownMul) / Math.max(0.65, zone.coinRiskMult))
-        );
-        const spacing = COIN_SPACING_BASE + s.speed * COIN_SPACING_SPEED_FACTOR;
-        const kind = pickCoinPattern(coinPatternPhase, Math.random);
-        const spawned = materializeCoinPattern({
-          kind,
-          phaseIndex: coinPatternPhase,
-          screenW: SCREEN_WIDTH,
-          coinSize: COIN_SIZE,
-          playerW: PLAYER_WIDTH,
-          coinSpacing: spacing,
-          preferredLane: nearestLaneIndex(s.playerX),
-          hazardLane: s.lastHazardLane,
-          laneMargin: LANE_MARGIN,
-          rng: Math.random,
-        });
-        for (let si = 0; si < spawned.length; si++) {
-          if (s.coins.length >= MAX_ACTIVE_COINS) break;
-          const row = spawned[si];
-          const cn = cPoolMain.acquire();
-          cn.id = allocEntityId();
-          cn.x = row.x;
-          cn.y = row.y;
-          cn.size = row.size;
-          s.coins.push(cn);
-        }
-      }
-
-      if (s.coins.length > 24) {
-        dedupeCoinsInPlace(s.coins, (c) => coinPoolRef.current.release(c));
-      }
-
-      let coinCollectW = 0;
-      for (let ci = 0; ci < s.coins.length; ci++) {
-        const c = s.coins[ci];
-        if (collidesCoin(s.playerY, s.playerX, c)) {
-          s.coinsCollected += 1;
-          getAudioManager().playCoin();
-          const coinPts = Math.floor(
-            (nowTs < s.x2Until ? 40 : 20) * pressure.feverScoreMult * pressure.comboScoreMult
-          );
-          s.pickupScore += coinPts;
-          if (!s.feverActive) {
-            s.feverMeter = feverMeterAddClamped(s.feverMeter, FEVER_METER_PER_COIN);
-          }
-          cPoolMain.release(c);
-          continue;
-        }
-        s.coins[coinCollectW++] = c;
-      }
-      s.coins.length = coinCollectW;
-
-      if (fatalDied) break;
+        if (fatalDied) break;
       }
 
       s.score = Math.floor(s.runDistance) + s.pickupScore;
+
+      const dChk = Math.floor(s.runDistance);
+      const cChk = s.coinsEarnedThisRun;
+      if (
+        dChk !== lastMilestoneCheckRef.current.d ||
+        cChk !== lastMilestoneCheckRef.current.c
+      ) {
+        lastMilestoneCheckRef.current = { d: dChk, c: cChk };
+        const distBest = Math.max(bestRunStatsRef.current.distanceM, dChk);
+        const coinsBest = Math.max(bestRunStatsRef.current.runCoins, cChk);
+        const merged = mergeMilestoneUnlocks(
+          s.ownedSkins,
+          distBest,
+          coinsBest,
+        );
+        const prevS = new Set(s.ownedSkins);
+        if (merged.some((id) => !prevS.has(id))) {
+          s.ownedSkins = merged;
+          void AsyncStorage.setItem(
+            OWNED_SKINS_KEY,
+            JSON.stringify(merged),
+          ).catch(() => {});
+          setUiEpoch((e) => e + 1);
+        }
+      }
 
       const zoneAfterLoop = getRunnerZoneByDistance(s.runDistance);
       if (zoneAfterLoop.index > s.lastAnnouncedZoneIndex && s.runTick > 12) {
@@ -1284,7 +1707,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         s.powerUps,
         s._visObs,
         s._visCoins,
-        s._visPow
+        s._visPow,
       );
       s._visObsN = vis.obsN;
       s._visCoinsN = vis.coinN;
@@ -1296,7 +1719,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         (o) => ({ x: o.x, y: o.y }),
         obsPosScratchRef,
         obsAliveRef,
-        obsPositionsSV
+        obsPositionsSV,
       );
       packVisibleIntoEntityPosSV(
         s._visCoins,
@@ -1304,7 +1727,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         (c) => ({ x: c.x, y: c.y }),
         coinPosScratchRef,
         coinAliveRef,
-        coinPositionsSV
+        coinPositionsSV,
       );
       packVisibleIntoEntityPosSV(
         s._visPow,
@@ -1315,7 +1738,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         },
         powerPosScratchRef,
         powerAliveRef,
-        powerPositionsSV
+        powerPositionsSV,
       );
 
       const os = visibleEntitySig(s._visObs, s._visObsN);
@@ -1334,15 +1757,14 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         setPowerRenderSpecs(buildPowerRenderSpecs(s._visPow, s._visPowN));
       }
 
-      heroLeftSV.value = s.playerX + (s.shakeT > 0 ? Math.sin(s.shakePhase) * (s.shakeT * 0.4) : 0);
+      heroLeftSV.value =
+        s.playerX +
+        (s.shakeT > 0 ? Math.sin(s.shakePhase) * (s.shakeT * 0.4) : 0);
       heroBottomSV.value = GROUND_HEIGHT + s.playerY;
       heroSteerSV.value = Math.max(
         -1,
-        Math.min(1, (s.playerXTarget - s.playerX) / Math.max(48, scale(110)))
+        Math.min(1, (s.playerXTarget - s.playerX) / Math.max(48, scale(110))),
       );
-      heroPulseSV.value =
-        1 + (s.activatePulseT > 0 ? Math.sin((12 - s.activatePulseT) * 0.5) * 0.06 : 0);
-      heroMagnetYSV.value = nowTs < s.magnetUntil ? Math.sin(s.shakePhase * 0.4) * 1.5 : 0;
 
       if (nowPerf - lastHudPushRef.current >= HUD_SCORE_THROTTLE_MS) {
         lastHudPushRef.current = nowPerf;
@@ -1364,7 +1786,10 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
       const wx = `${s.dangerVisual}|${s.feverActive ? 1 : 0}`;
       if (wx !== lastWorldFxKeyRef.current) {
         lastWorldFxKeyRef.current = wx;
-        setWorldFx({ dangerVisual: s.dangerVisual, feverActive: s.feverActive });
+        setWorldFx({
+          dangerVisual: s.dangerVisual,
+          feverActive: s.feverActive,
+        });
       }
 
       let auraMask = 0;
@@ -1391,11 +1816,44 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
       if (nowPerf - lastPerfUiRef.current >= PERF_UI_REFRESH_MS) {
         lastPerfUiRef.current = nowPerf;
         const st = perfSamplerRef.current.getStats(s.obstacles.length, fx);
-        setVisualTier(st.visualTier);
+        if (st.visualTier !== lastPerfVisualTierRef.current) {
+          lastPerfVisualTierRef.current = st.visualTier;
+          setVisualTier(st.visualTier);
+        }
         if (DEBUG_PERF_OVERLAY) setPerfStats(st);
       }
 
       if (fatalDied) {
+        persistSavedCoins(s.coinsCollected);
+        const distM = Math.floor(s.runDistance);
+        const runCoinsSnap = s.coinsEarnedThisRun;
+        const ownedSnap = [...s.ownedSkins];
+        void (async () => {
+          try {
+            const cur = await loadBestSingleRunStats();
+            const next = {
+              distanceM: Math.max(cur.distanceM, distM),
+              runCoins: Math.max(cur.runCoins, runCoinsSnap),
+            };
+            await persistBestSingleRunStats(next);
+            bestRunStatsRef.current = next;
+            setShopBestStats(next);
+            const merged = mergeMilestoneUnlocks(
+              ownedSnap,
+              next.distanceM,
+              next.runCoins,
+            );
+            const prevS = new Set(ownedSnap);
+            if (merged.some((id) => !prevS.has(id))) {
+              await AsyncStorage.setItem(
+                OWNED_SKINS_KEY,
+                JSON.stringify(merged),
+              ).catch(() => {});
+            }
+          } catch {
+            /* ignore */
+          }
+        })();
         setGameOver(true);
         const final = s.score;
         setHighScore((prev) => {
@@ -1404,6 +1862,13 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
             AsyncStorage.setItem(HIGH_SCORE_KEY, String(next)).catch(() => {});
           }
           return next;
+        });
+        void AsyncStorage.getItem(TOTAL_RUNS_KEY).then((raw) => {
+          const b = raw ? parseInt(raw, 10) : 0;
+          const base = Number.isNaN(b) ? 0 : b;
+          AsyncStorage.setItem(TOTAL_RUNS_KEY, String(base + 1)).catch(
+            () => {},
+          );
         });
         return;
       }
@@ -1417,8 +1882,13 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
+      if (coinPersistTimerRef.current != null) {
+        clearTimeout(coinPersistTimerRef.current);
+        coinPersistTimerRef.current = null;
+      }
+      persistSavedCoins(sim.current.coinsCollected);
     };
-  }, [gameOver]);
+  }, [gameOver, scheduleCoinPersist]);
 
   void uiEpoch;
 
@@ -1430,7 +1900,9 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     touchOffsetRef.current = fingerX - shipCenter;
     isDraggingRef.current = true;
     lastFingerXRef.current = fingerX;
-    s0.playerXTarget = clampPlayerLeft(fingerX - touchOffsetRef.current - PLAYER_WIDTH / 2);
+    s0.playerXTarget = clampPlayerLeft(
+      fingerX - touchOffsetRef.current - PLAYER_WIDTH / 2,
+    );
     const shipLeft = s0.playerX;
     const shipRight = s0.playerX + PLAYER_WIDTH;
     const shipBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + s0.playerY);
@@ -1453,7 +1925,9 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     }
     lastFingerXRef.current = x;
     const desiredCenter = x - touchOffsetRef.current;
-    sim.current.playerXTarget = clampPlayerLeft(desiredCenter - PLAYER_WIDTH / 2);
+    sim.current.playerXTarget = clampPlayerLeft(
+      desiredCenter - PLAYER_WIDTH / 2,
+    );
   }, []);
 
   const onResponderRelease = useCallback(() => {
@@ -1466,7 +1940,9 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
   const onGameRootLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
     if (width <= 0 || height <= 0) return;
-    setGameLayout((prev) => (prev?.w === width && prev?.h === height ? prev : { w: width, h: height }));
+    setGameLayout((prev) =>
+      prev?.w === width && prev?.h === height ? prev : { w: width, h: height },
+    );
   }, []);
 
   return (
@@ -1477,6 +1953,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
           <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
             <AnimatedDayCycleBackground
               style={styles.dayCycleBg}
+              staticSingleLayer
               parallaxEnabled={false}
               readabilityVignetteEnabled={false}
               visualQualityTier={visualTier}
@@ -1492,238 +1969,300 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
             onResponderGrant={onResponderGrant}
             onResponderMove={onResponderMove}
             onResponderRelease={onResponderRelease}
-        >
-          {worldFx.dangerVisual === "warn" && visualTier < 3 && (
-            <LinearGradient
-              pointerEvents="none"
-              colors={["rgba(245,158,11,0.26)", "rgba(245,158,11,0.05)", "transparent"]}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-              style={StyleSheet.absoluteFillObject}
-            />
-          )}
-          {worldFx.dangerVisual === "burst" && visualTier < 3 && (
-            <LinearGradient
-              pointerEvents="none"
-              colors={["rgba(220,38,38,0.22)", "rgba(220,38,38,0.06)", "transparent"]}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 0.72 }}
-              style={StyleSheet.absoluteFillObject}
-            />
-          )}
-          {worldFx.feverActive && visualTier < 3 && (
-            <LinearGradient
-              pointerEvents="none"
-              colors={["rgba(236,72,153,0.14)", "transparent", "rgba(251,191,36,0.08)"]}
-              start={{ x: 0, y: 0.2 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFillObject}
-            />
-          )}
-          <GameRunHud score={runHud.score} distanceFloor={runHud.distanceFloor} />
-          {zoneBanner != null && (
-            <View style={styles.zoneBannerWrap} pointerEvents="none" key={zoneBanner.id}>
-              <View style={styles.zoneBanner}>
-                <Text style={styles.zoneBannerTitle}>Zone {zoneBanner.zoneNumber}</Text>
-                <Text style={styles.zoneBannerSub}>Speed up — stay sharp</Text>
-              </View>
-            </View>
-          )}
-          {/* Lane art sits behind ship and falling entities — was last child and covered the bottom of the screen. */}
-          <SkyLane height={GROUND_HEIGHT} />
-          <HeroGameAnchor
-            key={`hero-${runSessionKey}`}
-            width={PLAYER_WIDTH}
-            height={PLAYER_HEIGHT}
-            steerSV={heroSteerSV}
-            leftSV={heroLeftSV}
-            bottomSV={heroBottomSV}
-            pulseScaleSV={heroPulseSV}
-            magnetYSV={heroMagnetYSV}
-            qualityTier={visualTier}
           >
-            {(heroAuraMask & 1) !== 0 && (
+            {worldFx.dangerVisual === "warn" && visualTier < 3 && (
               <View
                 pointerEvents="none"
-                style={{
-                  position: "absolute",
-                  left: -8,
-                  bottom: -8,
-                  width: PLAYER_WIDTH + 16,
-                  height: PLAYER_HEIGHT + 16,
-                  borderRadius: 999,
-                  backgroundColor: "rgba(96,165,250,0.25)",
-                  borderWidth: 2,
-                  borderColor: "rgba(96,165,250,0.9)",
-                }}
+                style={[StyleSheet.absoluteFillObject, styles.fxWashWarn]}
               />
             )}
-            {(heroAuraMask & 2) !== 0 && (
+            {worldFx.dangerVisual === "burst" && visualTier < 3 && (
               <View
                 pointerEvents="none"
-                style={{
-                  position: "absolute",
-                  left: -6,
-                  bottom: -6,
-                  width: PLAYER_WIDTH + 12,
-                  height: PLAYER_HEIGHT + 12,
-                  borderRadius: 999,
-                  borderWidth: 2,
-                  borderColor: "rgba(245,158,11,0.9)",
-                }}
+                style={[StyleSheet.absoluteFillObject, styles.fxWashBurst]}
               />
             )}
-            {(heroAuraMask & 4) !== 0 && (
+            {worldFx.feverActive && visualTier < 3 && (
               <View
                 pointerEvents="none"
-                style={{
-                  position: "absolute",
-                  left: -10,
-                  bottom: -10,
-                  width: PLAYER_WIDTH + 20,
-                  height: PLAYER_HEIGHT + 20,
-                  borderRadius: 999,
-                  borderWidth: 2,
-                  borderColor: "rgba(34,197,94,0.9)",
-                }}
+                style={[StyleSheet.absoluteFillObject, styles.fxWashFever]}
               />
             )}
-            {(heroAuraMask & 8) !== 0 && (
-              <View
-                pointerEvents="none"
-                style={{
-                  position: "absolute",
-                  left: -4,
-                  bottom: -14,
-                  width: PLAYER_WIDTH + 8,
-                  height: PLAYER_HEIGHT + 28,
-                  borderRadius: 12,
-                  borderWidth: 2,
-                  borderColor: "rgba(167,139,250,0.9)",
-                }}
-              />
-            )}
-            {(heroAuraMask & 16) !== 0 && (
-              <View
-                pointerEvents="none"
-                style={{
-                  position: "absolute",
-                  left: -10,
-                  bottom: -10,
-                  width: PLAYER_WIDTH + 20,
-                  height: PLAYER_HEIGHT + 20,
-                  borderRadius: 999,
-                  borderWidth: 2,
-                  borderColor: "rgba(165,180,252,0.95)",
-                  backgroundColor: "rgba(129,140,248,0.12)",
-                }}
-              />
-            )}
-          </HeroGameAnchor>
-          <ShopModal
-            open={sim.current.shopOpen}
-            coins={sim.current.coinsCollected}
-            ownedSkins={sim.current.ownedSkins}
-            currentSkin={sim.current.currentSkin}
-            skins={[
-              { id: "classic", name: "Classic", price: 0, variant: "classic" as ShipVariant, hull: "#8b4513", sail: "#f1f5f9" },
-              { id: "sloop", name: "Sloop", price: 500, variant: "sloop" as ShipVariant, hull: "#7c3aed", sail: "#e9d5ff" },
-              { id: "brig", name: "Brig", price: 1200, variant: "brig" as ShipVariant, hull: "#0ea5e9", sail: "#bae6fd" },
-              { id: "stealth", name: "Stealth", price: 2000, variant: "stealth" as ShipVariant, hull: "#111827", sail: "#d1d5db" },
-            ]}
-            onClose={toggleShop}
-            onBuyOrEquip={handleBuyOrEquip}
-            controlButtonStyle={styles.controlButton}
-            controlTextStyle={styles.controlText}
-          />
-          <WorldEntityLayer
-            key={`world-${runSessionKey}`}
-            obstacleSpecs={obsRenderSpecs}
-            coinSpecs={coinRenderSpecs}
-            powerSpecs={powerRenderSpecs}
-            obsPositions={obsPositionsSV}
-            coinPositions={coinPositionsSV}
-            powerPositions={powerPositionsSV}
-            visualTier={visualTier}
-          />
-
-          {HITBOX_OVERLAY_ENABLED ? (
-            <HitboxDebugOverlay
-              screenHeight={SCREEN_HEIGHT}
-              groundHeight={GROUND_HEIGHT}
-              playerX={sim.current.playerX}
-              playerY={sim.current.playerY}
-              playerWidth={PLAYER_WIDTH}
-              playerHeight={PLAYER_HEIGHT}
-              obstacles={sim.current.obstacles}
+            <GameRunHud
+              score={runHud.score}
+              distanceFloor={runHud.distanceFloor}
+              gameOver={gameOver}
+              shopOpen={sim.current.shopOpen}
+              runPaused={runPaused}
+              onToggleRunPause={toggleRunPause}
+              onOpenShop={toggleShop}
+              onExitToHome={() => {
+                getAudioManager().playButtonTap();
+                handleExitToHome();
+              }}
             />
-          ) : null}
-
-          <ActivePowerUpsHud
-            shieldUntil={sim.current.shieldUntil}
-            multiplierUntil={sim.current.x2Until}
-            magnetUntil={sim.current.magnetUntil}
-            boostUntil={sim.current.boostUntil}
-            slowTimeUntil={sim.current.slowTimeUntil}
-            ghostPhaseUntil={sim.current.ghostPhaseUntil}
-          />
-          <PowerPickupFlash kind={sim.current.pickupFlashKind} token={sim.current.pickupFlashToken} />
-
-          {gameOver && (
-            <View style={styles.overlay} pointerEvents="auto">
-              <View style={styles.card}>
-                <Text style={styles.gameOverTitle}>Game Over</Text>
-                <Text style={styles.gameOverTotalLabel}>Total score</Text>
-                <Text style={styles.finalScore}>{sim.current.score.toLocaleString()}</Text>
-                <View style={styles.gameOverStats}>
-                  <View style={styles.gameOverStatRow}>
-                    <Text style={styles.gameOverStatLabel}>Distance</Text>
-                    <Text style={styles.gameOverStatValue}>
-                      {Math.floor(sim.current.runDistance).toLocaleString()} m
-                    </Text>
-                  </View>
-                  <View style={styles.gameOverStatRow}>
-                    <Text style={styles.gameOverStatLabel}>Coins collected</Text>
-                    <Text style={styles.gameOverStatValue}>
-                      {sim.current.coinsCollected.toLocaleString()}
-                    </Text>
-                  </View>
-                  <View style={styles.gameOverStatRow}>
-                    <Text style={styles.gameOverStatLabel}>Bonus points</Text>
-                    <Text style={styles.gameOverStatValue}>
-                      +{sim.current.pickupScore.toLocaleString()}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.gameOverActions}>
-                  <Pressable
-                    style={({ pressed }) => [styles.gameOverButton, styles.gameOverButtonPrimary, { opacity: pressed ? 0.9 : 1 }]}
-                    onPress={() => {
-                      getAudioManager().playButtonTap();
-                      handleRetry();
-                    }}
-                  >
-                    <Text style={styles.gameOverButtonTextPrimary}>Retry</Text>
-                  </Pressable>
-                  <Pressable
-                    style={({ pressed }) => [styles.gameOverButton, styles.gameOverButtonSecondary, { opacity: pressed ? 0.88 : 1 }]}
-                    onPress={() => {
-                      getAudioManager().playButtonTap();
-                      handleExitToHome();
-                    }}
-                  >
-                    <Text style={styles.gameOverButtonTextSecondary}>Home</Text>
-                  </Pressable>
+            {zoneBanner != null && (
+              <View
+                style={styles.zoneBannerWrap}
+                pointerEvents="none"
+                key={zoneBanner.id}
+              >
+                <View style={styles.zoneBanner}>
+                  <Text style={styles.zoneBannerTitle}>
+                    Zone {zoneBanner.zoneNumber}
+                  </Text>
+                  <Text style={styles.zoneBannerSub}>
+                    Speed up — stay sharp
+                  </Text>
                 </View>
               </View>
-            </View>
-          )}
-        </View>
-        {DEBUG_PERF_OVERLAY ? (
-          <View pointerEvents="none" style={styles.fpsDebugWrap}>
-            <FpsPerfOverlay visible stats={perfStats} />
+            )}
+            {/* Lane art sits behind ship and falling entities — was last child and covered the bottom of the screen. */}
+            <SkyLane height={GROUND_HEIGHT} />
+            <HeroGameAnchor
+              key={`hero-${runSessionKey}`}
+              width={PLAYER_WIDTH}
+              height={PLAYER_HEIGHT}
+              steerSV={heroSteerSV}
+              leftSV={heroLeftSV}
+              bottomSV={heroBottomSV}
+              qualityTier={Math.max(2, visualTier) as VisualQualityTier}
+              skinImage={heroImageForSkinId(sim.current.currentSkin)}
+            >
+              {(heroAuraMask & 1) !== 0 && (
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: "absolute",
+                    left: -8,
+                    bottom: -8,
+                    width: PLAYER_WIDTH + 16,
+                    height: PLAYER_HEIGHT + 16,
+                    borderRadius: 999,
+                    backgroundColor: "rgba(96,165,250,0.25)",
+                    borderWidth: 2,
+                    borderColor: "rgba(96,165,250,0.9)",
+                  }}
+                />
+              )}
+              {(heroAuraMask & 2) !== 0 && (
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: "absolute",
+                    left: -6,
+                    bottom: -6,
+                    width: PLAYER_WIDTH + 12,
+                    height: PLAYER_HEIGHT + 12,
+                    borderRadius: 999,
+                    borderWidth: 2,
+                    borderColor: "rgba(245,158,11,0.9)",
+                  }}
+                />
+              )}
+              {(heroAuraMask & 4) !== 0 && (
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: "absolute",
+                    left: -10,
+                    bottom: -10,
+                    width: PLAYER_WIDTH + 20,
+                    height: PLAYER_HEIGHT + 20,
+                    borderRadius: 999,
+                    borderWidth: 2,
+                    borderColor: "rgba(34,197,94,0.9)",
+                  }}
+                />
+              )}
+              {(heroAuraMask & 8) !== 0 && (
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: "absolute",
+                    left: -4,
+                    bottom: -14,
+                    width: PLAYER_WIDTH + 8,
+                    height: PLAYER_HEIGHT + 28,
+                    borderRadius: 12,
+                    borderWidth: 2,
+                    borderColor: "rgba(167,139,250,0.9)",
+                  }}
+                />
+              )}
+              {(heroAuraMask & 16) !== 0 && (
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: "absolute",
+                    left: -10,
+                    bottom: -10,
+                    width: PLAYER_WIDTH + 20,
+                    height: PLAYER_HEIGHT + 20,
+                    borderRadius: 999,
+                    borderWidth: 2,
+                    borderColor: "rgba(165,180,252,0.95)",
+                    backgroundColor: "rgba(129,140,248,0.12)",
+                  }}
+                />
+              )}
+            </HeroGameAnchor>
+            <ShopModal
+              open={sim.current.shopOpen}
+              coins={sim.current.coinsCollected}
+              ownedSkins={sim.current.ownedSkins}
+              currentSkin={sim.current.currentSkin}
+              skins={SHOP_SKIN_ROWS}
+              bestSingleRunDistanceM={Math.max(
+                shopBestStats.distanceM,
+                Math.floor(sim.current.runDistance),
+              )}
+              bestSingleRunCoins={Math.max(
+                shopBestStats.runCoins,
+                sim.current.coinsEarnedThisRun,
+              )}
+              onClose={toggleShop}
+              onBuyOrEquip={handleBuyOrEquip}
+              onWatchVideoForCoins={handleWatchVideoForCoins}
+              videoRewardBusy={videoRewardBusy}
+              controlButtonStyle={styles.controlButton}
+              controlTextStyle={styles.controlText}
+            />
+            <WorldEntityLayer
+              key={`world-${runSessionKey}`}
+              obstacleSpecs={obsRenderSpecs}
+              coinSpecs={coinRenderSpecs}
+              powerSpecs={powerRenderSpecs}
+              obsPositions={obsPositionsSV}
+              coinPositions={coinPositionsSV}
+              powerPositions={powerPositionsSV}
+            />
+
+            {HITBOX_OVERLAY_ENABLED ? (
+              <HitboxDebugOverlay
+                screenHeight={SCREEN_HEIGHT}
+                groundHeight={GROUND_HEIGHT}
+                playerX={sim.current.playerX}
+                playerY={sim.current.playerY}
+                playerWidth={PLAYER_WIDTH}
+                playerHeight={PLAYER_HEIGHT}
+                obstacles={sim.current.obstacles}
+              />
+            ) : null}
+
+            <ActivePowerUpsHud
+              shieldUntil={sim.current.shieldUntil}
+              multiplierUntil={sim.current.x2Until}
+              magnetUntil={sim.current.magnetUntil}
+              boostUntil={sim.current.boostUntil}
+              slowTimeUntil={sim.current.slowTimeUntil}
+              ghostPhaseUntil={sim.current.ghostPhaseUntil}
+            />
+            <PowerPickupFlash
+              kind={sim.current.pickupFlashKind}
+              token={sim.current.pickupFlashToken}
+            />
+
+            {gameOver && (
+              <View style={styles.overlay} pointerEvents="auto">
+                <View style={styles.card}>
+                  <Text style={styles.gameOverTitle}>Game Over</Text>
+                  <Text style={styles.gameOverTotalLabel}>Total score</Text>
+                  <Text style={styles.finalScore}>
+                    {sim.current.score.toLocaleString()}
+                  </Text>
+                  <View style={styles.gameOverStats}>
+                    <View style={styles.gameOverStatRow}>
+                      <Text style={styles.gameOverStatLabel}>Distance</Text>
+                      <Text style={styles.gameOverStatValue}>
+                        {Math.floor(sim.current.runDistance).toLocaleString()} m
+                      </Text>
+                    </View>
+                    <View style={styles.gameOverStatRow}>
+                      <Text style={styles.gameOverStatLabel}>
+                        Coins collected
+                      </Text>
+                      <Text style={styles.gameOverStatValue}>
+                        {sim.current.coinsCollected.toLocaleString()}
+                      </Text>
+                    </View>
+                    <View style={styles.gameOverStatRow}>
+                      <Text style={styles.gameOverStatLabel}>Bonus points</Text>
+                      <Text style={styles.gameOverStatValue}>
+                        +{sim.current.pickupScore.toLocaleString()}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.gameOverActionCol}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.gameOverReviveButton,
+                        {
+                          opacity:
+                            reviveVideoBusy || pressed ? 0.82 : 1,
+                        },
+                      ]}
+                      onPress={handleReviveVideo}
+                      disabled={reviveVideoBusy}
+                    >
+                      <View style={styles.gameOverReviveIconWrap}>
+                        {reviveVideoBusy ? (
+                          <ActivityIndicator color="#e0f2fe" size="small" />
+                        ) : (
+                          <Text style={styles.gameOverReviveIcon}>▶</Text>
+                        )}
+                      </View>
+                      <View style={styles.gameOverReviveTextCol}>
+                        <Text style={styles.gameOverReviveTitle}>
+                          Watch video — continue
+                        </Text>
+                        <Text style={styles.gameOverReviveSub}>
+                          Same run, same score & position
+                        </Text>
+                      </View>
+                    </Pressable>
+                    <View style={styles.gameOverActions}>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.gameOverButton,
+                          styles.gameOverButtonPrimary,
+                          { opacity: pressed ? 0.9 : 1 },
+                        ]}
+                        onPress={() => {
+                          getAudioManager().playButtonTap();
+                          handleRetry();
+                        }}
+                      >
+                        <Text style={styles.gameOverButtonTextPrimary}>
+                          Retry
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.gameOverButton,
+                          styles.gameOverButtonSecondary,
+                          { opacity: pressed ? 0.88 : 1 },
+                        ]}
+                        onPress={() => {
+                          getAudioManager().playButtonTap();
+                          handleExitToHome();
+                        }}
+                      >
+                        <Text style={styles.gameOverButtonTextSecondary}>
+                          Home
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            )}
           </View>
-        ) : null}
+          {DEBUG_PERF_OVERLAY ? (
+            <View pointerEvents="none" style={styles.fpsDebugWrap}>
+              <FpsPerfOverlay visible stats={perfStats} />
+            </View>
+          ) : null}
         </View>
       </TouchableWithoutFeedback>
     </SafeAreaView>
@@ -1732,28 +2271,215 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
 
 export default function App() {
   const [showHome, setShowHome] = useState(true);
+  const [homeShopOpen, setHomeShopOpen] = useState(false);
+  const [homeShopCoins, setHomeShopCoins] = useState(0);
+  const [homeOwnedSkins, setHomeOwnedSkins] = useState<string[]>(["classic"]);
+  const [homeCurrentSkin, setHomeCurrentSkin] = useState("classic");
+  const [homeVideoBusy, setHomeVideoBusy] = useState(false);
+  const [homeBestRunStats, setHomeBestRunStats] = useState<BestSingleRunStats>({
+    distanceM: 0,
+    runCoins: 0,
+  });
 
   useEffect(() => {
-    const a = getAudioManager();
-    void a.preload().then(() => {
-      if (showHome) {
-        a.playMenuMusic();
-      } else {
-        a.stopMenuMusic();
+    if (DEV_GRANT_COINS_ON_LAUNCH > 0) {
+      persistSavedCoins(DEV_GRANT_COINS_ON_LAUNCH);
+    }
+  }, []);
+
+  useEffect(() => {
+    void getAudioManager().preload();
+  }, []);
+
+  useEffect(() => {
+    if (!showHome) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [raw, rawOwned, br] = await Promise.all([
+          AsyncStorage.getItem(SAVED_COINS_KEY),
+          AsyncStorage.getItem(OWNED_SKINS_KEY),
+          loadBestSingleRunStats(),
+        ]);
+        if (cancelled) return;
+        const n = raw != null ? parseInt(raw, 10) : 0;
+        setHomeShopCoins(Number.isNaN(n) ? 0 : Math.max(0, n));
+        setHomeBestRunStats(br);
+        let owned: string[] = ["classic"];
+        if (rawOwned) {
+          try {
+            const parsed = JSON.parse(rawOwned);
+            if (Array.isArray(parsed)) owned = parsed;
+          } catch {
+            /* ignore */
+          }
+        }
+        const merged = mergeMilestoneUnlocks(
+          owned,
+          br.distanceM,
+          br.runCoins,
+        );
+        const prevS = new Set(owned);
+        if (merged.some((id) => !prevS.has(id))) {
+          await AsyncStorage.setItem(
+            OWNED_SKINS_KEY,
+            JSON.stringify(merged),
+          ).catch(() => {});
+          setHomeOwnedSkins(merged);
+        }
+      } catch {
+        /* ignore */
       }
-    });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [showHome]);
+
+  const openHomeShop = useCallback(() => {
+    getAudioManager().playButtonTap();
+    void (async () => {
+      try {
+        const [rawOwned, rawCurrent, rawCoins, br] = await Promise.all([
+          AsyncStorage.getItem(OWNED_SKINS_KEY),
+          AsyncStorage.getItem(CURRENT_SKIN_KEY),
+          AsyncStorage.getItem(SAVED_COINS_KEY),
+          loadBestSingleRunStats(),
+        ]);
+        let owned: string[] = ["classic"];
+        if (rawOwned) {
+          try {
+            const parsed = JSON.parse(rawOwned);
+            if (Array.isArray(parsed)) owned = parsed;
+          } catch {
+            /* ignore */
+          }
+        }
+        const merged = mergeMilestoneUnlocks(
+          owned,
+          br.distanceM,
+          br.runCoins,
+        );
+        const prevS = new Set(owned);
+        if (merged.some((id) => !prevS.has(id))) {
+          await AsyncStorage.setItem(
+            OWNED_SKINS_KEY,
+            JSON.stringify(merged),
+          ).catch(() => {});
+        }
+        const current =
+          rawCurrent && rawCurrent.length > 0 ? rawCurrent : "classic";
+        const coinsParsed = rawCoins != null ? parseInt(rawCoins, 10) : 0;
+        setHomeOwnedSkins(merged);
+        setHomeCurrentSkin(current);
+        setHomeBestRunStats(br);
+        setHomeShopCoins(
+          Number.isNaN(coinsParsed) ? 0 : Math.max(0, coinsParsed),
+        );
+      } catch {
+        /* keep previous home shop state */
+      }
+      prepareShopRewardedAd();
+      setHomeShopOpen(true);
+    })();
+  }, []);
+
+  const closeHomeShop = useCallback(() => {
+    getAudioManager().playButtonTap();
+    setHomeShopOpen(false);
+  }, []);
+
+  const handleHomeBuyOrEquip = useCallback(
+    (
+      skinId: string,
+      price: number,
+      _variant: ShipVariant,
+      _hull: string,
+      _sail: string,
+    ) => {
+      const owned = new Set(homeOwnedSkins);
+      const row = SHOP_SKIN_ROWS.find((r) => r.id === skinId);
+      if (!owned.has(skinId) && row?.milestone) {
+        if (
+          !skinMilestoneSatisfied(
+            row,
+            homeBestRunStats.distanceM,
+            homeBestRunStats.runCoins,
+          )
+        )
+          return;
+        const next = [...owned, skinId];
+        setHomeOwnedSkins(next);
+        setHomeCurrentSkin(skinId);
+        void AsyncStorage.setItem(OWNED_SKINS_KEY, JSON.stringify(next));
+        void AsyncStorage.setItem(CURRENT_SKIN_KEY, skinId);
+        return;
+      }
+      if (owned.has(skinId)) {
+        setHomeCurrentSkin(skinId);
+        void AsyncStorage.setItem(CURRENT_SKIN_KEY, skinId);
+        return;
+      }
+      if (row?.milestone) return;
+      if (homeShopCoins >= price) {
+        const nextCoins = homeShopCoins - price;
+        const nextOwned = [...owned, skinId];
+        setHomeShopCoins(nextCoins);
+        setHomeOwnedSkins(nextOwned);
+        setHomeCurrentSkin(skinId);
+        persistSavedCoins(nextCoins);
+        void AsyncStorage.setItem(OWNED_SKINS_KEY, JSON.stringify(nextOwned));
+        void AsyncStorage.setItem(CURRENT_SKIN_KEY, skinId);
+      }
+    },
+    [homeOwnedSkins, homeShopCoins, homeBestRunStats],
+  );
+
+  const handleHomeWatchVideo = useCallback(() => {
+    if (homeVideoBusy) return;
+    setHomeVideoBusy(true);
+    showShopRewardedForCoins(
+      (coins) => {
+        setHomeShopCoins((c) => {
+          const n = c + coins;
+          persistSavedCoins(n);
+          return n;
+        });
+      },
+      () => setHomeVideoBusy(false),
+    );
+  }, [homeVideoBusy]);
 
   return (
     <SafeAreaProvider style={{ flex: 1, backgroundColor: "transparent" }}>
+      <AdsRoot isHome={showHome} />
       <AppStatusBar />
       {showHome ? (
-        <HomeScreen
-          onPlay={() => {
-            getAudioManager().playButtonTap();
-            setShowHome(false);
-          }}
-        />
+        <>
+          <HomeScreen
+            coins={homeShopCoins}
+            onPlay={() => {
+              getAudioManager().playButtonTap();
+              showPlayInterstitialThen(() => setShowHome(false));
+            }}
+            onOpenShop={openHomeShop}
+          />
+          <ShopModal
+            open={homeShopOpen}
+            coins={homeShopCoins}
+            ownedSkins={homeOwnedSkins}
+            currentSkin={homeCurrentSkin}
+            skins={SHOP_SKIN_ROWS}
+            bestSingleRunDistanceM={homeBestRunStats.distanceM}
+            bestSingleRunCoins={homeBestRunStats.runCoins}
+            onClose={closeHomeShop}
+            onBuyOrEquip={handleHomeBuyOrEquip}
+            onWatchVideoForCoins={handleHomeWatchVideo}
+            videoRewardBusy={homeVideoBusy}
+            controlButtonStyle={styles.controlButton}
+            controlTextStyle={styles.controlText}
+          />
+        </>
       ) : (
         <GameScreen onExitToHome={() => setShowHome(true)} />
       )}
@@ -1782,6 +2508,16 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     /** Allow obstacle art / motion to paint outside the flex box (child views use `overflow: "visible"` too). */
     overflow: "visible",
+  },
+  /** Flat color washes — cheaper than full-screen LinearGradient each frame. */
+  fxWashWarn: {
+    backgroundColor: "rgba(245,158,11,0.1)",
+  },
+  fxWashBurst: {
+    backgroundColor: "rgba(220,38,38,0.09)",
+  },
+  fxWashFever: {
+    backgroundColor: "rgba(236,72,153,0.06)",
   },
   zoneBannerWrap: {
     position: "absolute",
@@ -2056,12 +2792,54 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.92)",
     fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
   },
+  gameOverActionCol: {
+    width: "100%",
+    marginTop: heightPixel(6),
+    gap: heightPixel(12),
+  },
+  gameOverReviveButton: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(12),
+    paddingVertical: heightPixel(14),
+    paddingHorizontal: scale(14),
+    borderRadius: scale(14),
+    backgroundColor: "rgba(56,189,248,0.22)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(56,189,248,0.55)",
+  },
+  gameOverReviveIconWrap: {
+    width: scale(32),
+    height: scale(32),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  gameOverReviveIcon: {
+    fontSize: fontPixel(20),
+    color: "#7dd3fc",
+    textAlign: "center",
+  },
+  gameOverReviveTextCol: {
+    flex: 1,
+  },
+  gameOverReviveTitle: {
+    color: "#f0f9ff",
+    fontWeight: "800",
+    fontSize: fontPixel(15),
+    letterSpacing: 0.3,
+  },
+  gameOverReviveSub: {
+    marginTop: heightPixel(3),
+    color: "rgba(224,242,254,0.78)",
+    fontSize: fontPixel(12),
+    fontWeight: "600",
+  },
   gameOverActions: {
     flexDirection: "row",
     width: "100%",
     justifyContent: "center",
     gap: scale(12),
-    marginTop: heightPixel(4),
   },
   gameOverButton: {
     flex: 1,

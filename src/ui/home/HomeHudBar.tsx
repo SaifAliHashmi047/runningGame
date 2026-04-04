@@ -1,26 +1,20 @@
 import React, { memo, useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from "react-native-reanimated";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import { colors, radius, shadow } from "./theme";
 import { useResponsive } from "./useResponsive";
 import HighScoreBadge from "./HighScoreBadge";
-import { enterTopHud } from "./homeMotion";
 
 type Props = {
   highScore: number;
+  coins: number;
 };
 
 /**
- * Top HUD: best score with a soft count-up on first paint + card pulse.
+ * Top HUD: best score with a soft count-up on first paint (no card pulse / layout entry).
  */
-function HomeHudBarInner({ highScore }: Props) {
+function HomeHudBarInner({ highScore, coins }: Props) {
   const { scale, fontPixel, heightPixel } = useResponsive();
   const [displayScore, setDisplayScore] = useState(0);
-  const pulse = useSharedValue(0);
-
-  useEffect(() => {
-    pulse.value = withTiming(1, { duration: 650, easing: Easing.out(Easing.cubic) });
-  }, [pulse]);
 
   useEffect(() => {
     if (highScore <= 0) {
@@ -40,40 +34,58 @@ function HomeHudBarInner({ highScore }: Props) {
     return () => cancelAnimationFrame(raf);
   }, [highScore]);
 
-  const cardStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: 0.96 + pulse.value * 0.04 }],
-  }));
-
   return (
-    <Animated.View entering={enterTopHud()} style={[styles.row, { paddingHorizontal: scale(14), gap: scale(10) }]}>
-      <Animated.View
-        style={[
-          styles.card,
-          cardStyle,
-          {
-            borderRadius: scale(radius.lg),
-            paddingVertical: heightPixel(4),
-            paddingHorizontal: scale(6),
-            ...shadow.light,
-          },
-        ]}
-      >
-        <HighScoreBadge highScore={displayScore} />
-      </Animated.View>
-      <View
-        style={[
-          styles.pill,
-          {
-            borderRadius: scale(radius.pill),
-            paddingHorizontal: scale(12),
-            paddingVertical: heightPixel(6),
-            borderWidth: scale(1),
-          },
-        ]}
-      >
-        <Animated.Text style={[styles.pillText, { fontSize: fontPixel(11) }]}>ARCADE RUN</Animated.Text>
+    <View style={[styles.row, { paddingHorizontal: scale(14), gap: scale(10) }]}>
+      <View style={[styles.chipsRow, { gap: scale(8) }]}>
+        <View
+          style={[
+            styles.card,
+            {
+              borderRadius: scale(radius.lg),
+              paddingVertical: heightPixel(4),
+              paddingHorizontal: scale(6),
+              ...shadow.light,
+            },
+          ]}
+        >
+          <HighScoreBadge highScore={displayScore} />
+        </View>
+        <View
+          style={[
+            styles.card,
+            {
+              borderRadius: scale(radius.lg),
+              paddingVertical: heightPixel(4),
+              paddingHorizontal: scale(6),
+              ...shadow.light,
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.metricInner,
+              {
+                paddingHorizontal: scale(10),
+                paddingVertical: scale(6),
+                borderRadius: scale(radius.md),
+              },
+            ]}
+          >
+            <Text
+              style={[styles.metricLabel, { fontSize: fontPixel(10), marginRight: scale(6) }]}
+            >
+              COINS
+            </Text>
+            <Text
+              style={[styles.metricValue, { fontSize: fontPixel(16) }]}
+              numberOfLines={1}
+            >
+              {Math.max(0, Math.floor(coins)).toLocaleString()}
+            </Text>
+          </View>
+        </View>
       </View>
-    </Animated.View>
+    </View>
   );
 }
 
@@ -83,21 +95,38 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
     width: "100%",
+  },
+  chipsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 1,
+    minWidth: 0,
   },
   card: {
     borderWidth: 1,
     borderColor: colors.cardBorder,
     backgroundColor: "rgba(8,12,24,0.5)",
   },
-  pill: {
-    backgroundColor: "rgba(0,229,255,0.12)",
-    borderColor: "rgba(0,229,255,0.28)",
+  /** Matches `HighScoreBadge` inner panel so COINS reads like BEST. */
+  metricInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.25)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
   },
-  pillText: {
-    color: colors.accent,
-    fontWeight: "800",
-    letterSpacing: 3,
+  metricLabel: {
+    color: colors.textTertiary,
+    letterSpacing: 2,
+    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
+  },
+  metricValue: {
+    color: colors.textPrimary,
+    fontWeight: "900",
+    flexShrink: 1,
+    minWidth: 0,
+    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
   },
 });

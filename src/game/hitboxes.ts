@@ -25,8 +25,8 @@ export type ObstacleHitboxInput = {
 };
 
 /**
- * Render / layout size (what `GameObstacle` receives). SVGs sit inside this box; transparent
- * padding in art is why collision uses tighter `obstacleCollisionRect`.
+ * Render / layout size (texture fits inside this box; `resizeMode: contain`).
+ * Transparent padding in art is why collision uses tighter `obstacleCollisionRect`.
  */
 export function obstacleVisualSize(visual: ObstacleVisual, size: number, typeWide: boolean): { w: number; h: number } {
   const wide = typeWide ? 1.45 : 1;
@@ -34,21 +34,21 @@ export function obstacleVisualSize(visual: ObstacleVisual, size: number, typeWid
   let w: number;
   let h: number;
   switch (visual) {
-    case "laser":
-      w = size * wide;
-      h = Math.max(26, size * 0.36);
+    case "rock":
+      w = size * 0.86 * wide;
+      h = size * 1.06;
       break;
-    case "mine":
+    case "fireball":
       w = size * 0.92 * wide;
-      h = size * 0.95;
+      h = size * 1.02;
       break;
-    case "drone":
-      w = size * wide;
-      h = Math.max(34, size * 0.65);
+    case "roundBomb":
+      w = size * 0.96 * wide;
+      h = size * 0.96;
       break;
-    case "crystal":
-      w = size * 0.9 * wide;
-      h = size * 1.18;
+    case "aeroBomb":
+      w = size * 1.04 * wide;
+      h = size * 0.84;
       break;
     default:
       w = size * wide;

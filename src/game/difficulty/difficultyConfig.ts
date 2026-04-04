@@ -10,14 +10,14 @@ export type DifficultyPhaseId = "warmup" | "medium" | "hard" | "extreme";
 export type ObstacleSpawnType = "block" | "fast" | "wide" | "zigzag";
 
 /** Global clamp on scroll / fall tuning. Asymptotic run speed is set in `runner/runnerConfig`. */
-export const MAX_SPEED_CAP = 16.8;
+export const MAX_SPEED_CAP = 15.4;
 /** Per-frame base increment before modifiers (small = smooth curve). */
 export const SPEED_RAMP_BASE = 0.00155;
 
 /** Score thresholds that grant a one-time speed “bump” (fair telegraph via phase UI). */
-export const SPEED_MILESTONES = [2500, 6000, 14000, 28000, 52000] as const;
+export const SPEED_MILESTONES = [4200, 9800, 21000, 38000, 62000] as const;
 /** Additive speed at each milestone index (clamp applied later). */
-export const SPEED_MILESTONE_DELTA = [0.42, 0.38, 0.48, 0.52, 0.55] as const;
+export const SPEED_MILESTONE_DELTA = [0.28, 0.26, 0.32, 0.34, 0.36] as const;
 
 /** Run time (frames) used to blend “time tension” on top of score phase — higher = slower tension build. */
 export const TIME_TENSION_HALF_LIFE_FRAMES = 5200;
@@ -49,49 +49,49 @@ export const DIFFICULTY_PHASES: readonly {
     id: "warmup",
     minScore: 0,
     label: "Warmup",
-    spawnIntervalMul: 1.18,
+    spawnIntervalMul: 1.32,
     duoSpawnBonus: 0.05,
     fallSpeedMul: 1.0,
     speedRampMul: 0.78,
     typeWeights: { block: 0.38, fast: 0.12, wide: 0.22, zigzag: 0.28 },
-    powerCooldownMul: 0.92,
-    coinCooldownMul: 0.95,
+    powerCooldownMul: 1.22,
+    coinCooldownMul: 1.18,
   },
   {
     id: "medium",
-    minScore: 5800,
+    minScore: 9200,
     label: "Medium",
     spawnIntervalMul: 0.88,
     duoSpawnBonus: 0.14,
     fallSpeedMul: 1.08,
     speedRampMul: 1.05,
     typeWeights: { block: 0.22, fast: 0.22, wide: 0.26, zigzag: 0.3 },
-    powerCooldownMul: 1.0,
-    coinCooldownMul: 1.02,
+    powerCooldownMul: 1.32,
+    coinCooldownMul: 1.22,
   },
   {
     id: "hard",
-    minScore: 11000,
+    minScore: 16800,
     label: "Hard",
     spawnIntervalMul: 0.72,
     duoSpawnBonus: 0.22,
     fallSpeedMul: 1.16,
     speedRampMul: 1.28,
     typeWeights: { block: 0.16, fast: 0.3, wide: 0.24, zigzag: 0.3 },
-    powerCooldownMul: 1.08,
-    coinCooldownMul: 1.05,
+    powerCooldownMul: 1.42,
+    coinCooldownMul: 1.28,
   },
   {
     id: "extreme",
-    minScore: 40000,
+    minScore: 52000,
     label: "Extreme",
     spawnIntervalMul: 0.58,
     duoSpawnBonus: 0.3,
     fallSpeedMul: 1.24,
     speedRampMul: 1.45,
     typeWeights: { block: 0.12, fast: 0.34, wide: 0.24, zigzag: 0.3 },
-    powerCooldownMul: 1.12,
-    coinCooldownMul: 1.08,
+    powerCooldownMul: 1.48,
+    coinCooldownMul: 1.32,
   },
 ];
 
@@ -99,8 +99,14 @@ export const DIFFICULTY_PHASES: readonly {
 export const SPAWN_INTERVAL_BASE_MIN = 22;
 export const SPAWN_INTERVAL_BASE_MAX = 44;
 
+/** Floor for pressure-driven spawn gap (frames) — keeps late score phases from frame-perfect spam. */
+export const PRESSURE_SPAWN_INTERVAL_FLOOR_MIN = 14;
+
 /** Global fall-speed tuning (game feel). */
-export const WORLD_FALL_MULT = 1.28;
+export const WORLD_FALL_MULT = 1.18;
+
+/** Upper bound on combined fall multiplier from `resolveRunPressure` (skill ceiling). */
+export const WORLD_FALL_SPEED_CAP = 1.4;
 
 /**
  * Obstacle / pickup sizes — design px @ 375w, then scaled to device via `scale`.
@@ -112,13 +118,13 @@ export const POWERUP_WORLD_SIZE = widthDesignScale(44);
 export const COIN_SIZE = widthDesignScale(21);
 
 /** Danger zone: short burst of higher pressure after a clear warning. */
-export const DANGER_MIN_SCORE_TO_START = 3200;
+export const DANGER_MIN_SCORE_TO_START = 5200;
 export const DANGER_WARN_MS = 2200;
 export const DANGER_BURST_MS = 5200;
 export const DANGER_COOLDOWN_MS = 32000;
-export const DANGER_FIRST_DELAY_MS = 28000;
+export const DANGER_FIRST_DELAY_MS = 36000;
 /** During burst: spawn interval × this (<1 = denser). */
-export const DANGER_SPAWN_COMPRESSION = 0.62;
+export const DANGER_SPAWN_COMPRESSION = 0.68;
 /** During burst: extra multiplier on world fall speed. */
 export const DANGER_FALL_MULT = 1.14;
 /** During burst: extra speed ramp multiplier (frames feel hotter). */
@@ -132,7 +138,7 @@ export const FEVER_METER_PER_COIN = 0.55;
 export const FEVER_METER_PER_POWER_PICKUP = 2.2;
 export const FEVER_METER_SURVIVAL_CHUNK_FRAMES = 120;
 export const FEVER_METER_SURVIVAL_CHUNK = 1.15;
-export const FEVER_BASE_DURATION_MS = 9000;
+export const FEVER_BASE_DURATION_MS = 10800;
 export const FEVER_DURATION_PER_COMBO_TIER_MS = 900;
 export const FEVER_SCORE_MULT_BASE = 2.4;
 export const FEVER_SCORE_MULT_PER_PHASE = 0.35;

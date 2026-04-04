@@ -20,41 +20,30 @@ export type PowerPickupFlashProps = {
 };
 
 /**
- * Brief premium pickup pop: scale + fade aligned with collecting a power orb.
+ * Brief pickup acknowledgment — opacity only (no scale/back easing work).
  */
 export default function PowerPickupFlash({ kind, token }: PowerPickupFlashProps) {
-  const scale = useSharedValue(0.6);
   const opacity = useSharedValue(0);
 
   useEffect(() => {
     if (!kind || token <= 0) {
       cancelAnimation(opacity);
-      cancelAnimation(scale);
       opacity.value = 0;
-      scale.value = 0.6;
       return;
     }
     cancelAnimation(opacity);
-    cancelAnimation(scale);
     opacity.value = 0;
-    scale.value = 0.5;
     opacity.value = withSequence(
-      withTiming(1, { duration: 90, easing: Easing.out(Easing.cubic) }),
-      withTiming(0, { duration: 420, easing: Easing.in(Easing.quad) })
-    );
-    scale.value = withSequence(
-      withTiming(1.12, { duration: 160, easing: Easing.out(Easing.back(1.2)) }),
-      withTiming(0.92, { duration: 200, easing: Easing.inOut(Easing.quad) })
+      withTiming(1, { duration: 70, easing: Easing.out(Easing.quad) }),
+      withTiming(0, { duration: 320, easing: Easing.in(Easing.quad) }),
     );
     return () => {
       cancelAnimation(opacity);
-      cancelAnimation(scale);
     };
-  }, [kind, token, opacity, scale]);
+  }, [kind, token, opacity]);
 
   const aStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
-    transform: [{ scale: scale.value }],
   }));
 
   if (!kind) return null;

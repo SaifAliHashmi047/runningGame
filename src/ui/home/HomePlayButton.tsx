@@ -1,19 +1,10 @@
-import React, { memo, useEffect } from "react";
-import { Pressable, Text, StyleSheet, Platform, ViewStyle } from "react-native";
-import Animated, {
-  Easing,
-  interpolate,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withSpring,
-  withTiming,
-} from "react-native-reanimated";
+import React, { memo } from "react";
+import { Pressable, Text, StyleSheet, Platform, View, ViewStyle } from "react-native";
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 import LinearGradient from "react-native-linear-gradient";
 import { colors, radius, shadow } from "./theme";
 import { useResponsive } from "./useResponsive";
-import { CTA_IDLE_PULSE_MS, HOME_SPRING_PRESS } from "./homeMotion";
+import { HOME_SPRING_PRESS } from "./homeMotion";
 
 type Props = {
   title: string;
@@ -24,44 +15,23 @@ type Props = {
 function HomePlayButtonInner({ title, onPress, style }: Props) {
   const { scale, fontPixel, heightPixel } = useResponsive();
   const press = useSharedValue(0);
-  const breathe = useSharedValue(0);
 
   const r = scale(radius.xl);
   const padH = scale(32);
   const padV = heightPixel(16);
   const glowPad = scale(10);
 
-  useEffect(() => {
-    breathe.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: CTA_IDLE_PULSE_MS * 0.55, easing: Easing.inOut(Easing.sin) }),
-        withTiming(0, { duration: CTA_IDLE_PULSE_MS * 0.45, easing: Easing.inOut(Easing.sin) })
-      ),
-      -1,
-      false
-    );
-  }, [breathe]);
-
-  const glowStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(breathe.value, [0, 1], [0.4, 0.88]),
-    transform: [{ scale: interpolate(breathe.value, [0, 1], [1, 1.08]) }],
+  const shellStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: 1 - press.value * 0.078 }],
   }));
-
-  const shellStyle = useAnimatedStyle(() => {
-    const idle = interpolate(breathe.value, [0, 1], [0, 0.046]);
-    const p = press.value;
-    return {
-      transform: [{ scale: 1 + idle - p * 0.078 }],
-    };
-  });
 
   return (
     <Animated.View style={[styles.shadowHost, shellStyle, style]}>
-      <Animated.View
+      <View
         pointerEvents="none"
         style={[
           styles.glowBlob,
-          glowStyle,
+          styles.glowBlobStatic,
           {
             borderRadius: r + glowPad,
             top: -glowPad,
@@ -77,7 +47,7 @@ function HomePlayButtonInner({ title, onPress, style }: Props) {
           end={{ x: 1, y: 0.5 }}
           style={[StyleSheet.absoluteFillObject, { borderRadius: r + glowPad }]}
         />
-      </Animated.View>
+      </View>
       <Pressable
         onPressIn={() => {
           press.value = withSpring(1, HOME_SPRING_PRESS);
@@ -119,6 +89,10 @@ const styles = StyleSheet.create({
   glowBlob: {
     position: "absolute",
     zIndex: 0,
+  },
+  glowBlobStatic: {
+    opacity: 0.72,
+    transform: [{ scale: 1.04 }],
   },
   pressable: {
     zIndex: 1,

@@ -1,52 +1,16 @@
-import React, { memo, useEffect } from "react";
+import React, { memo } from "react";
 import { StyleSheet, Text, View, Platform } from "react-native";
-import Animated, {
-  Easing,
-  interpolate,
-  interpolateColor,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from "react-native-reanimated";
 import LinearGradient from "react-native-linear-gradient";
 import { colors, radius } from "./theme";
 import { useResponsive } from "./useResponsive";
 import { scale } from "../../../utils/responsive";
-import { enterRewardCard, CARD_SHINE_MS, REWARD_PULSE_MS } from "./homeMotion";
 
-/** Accent strip with shine sweep — no duplicate stats (score lives in the top HUD). */
+/** Accent strip — static border/shine (no looping animations). */
 function HomeRewardStripInner() {
   const { scale, fontPixel, heightPixel } = useResponsive();
-  const shine = useSharedValue(0);
-  const pulse = useSharedValue(0);
-  const track = scale(120);
-
-  useEffect(() => {
-    shine.value = withRepeat(
-      withTiming(1, { duration: CARD_SHINE_MS, easing: Easing.inOut(Easing.quad) }),
-      -1,
-      false
-    );
-    pulse.value = withRepeat(
-      withTiming(1, { duration: REWARD_PULSE_MS, easing: Easing.inOut(Easing.sin) }),
-      -1,
-      true
-    );
-  }, [shine, pulse]);
-
-  const shineStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: interpolate(shine.value, [0, 1], [-track, track * 2.2]) }],
-    opacity: interpolate(shine.value, [0, 0.18, 0.82, 1], [0, 0.5, 0.45, 0]),
-  }));
-
-  const bodyStyle = useAnimatedStyle(() => ({
-    borderColor: interpolateColor(pulse.value, [0, 1], ["rgba(255,255,255,0.12)", "rgba(0,229,255,0.35)"]),
-  }));
 
   return (
-    <Animated.View
-      entering={enterRewardCard()}
+    <View
       style={[
         styles.root,
         {
@@ -55,23 +19,23 @@ function HomeRewardStripInner() {
           paddingHorizontal: scale(16),
           maxWidth: scale(340),
           width: "100%",
+          borderColor: "rgba(0,229,255,0.22)",
         },
-        bodyStyle,
       ]}
     >
-      <View style={[styles.shineClip, { borderRadius: scale(radius.md - 2) }]}>
-        <Animated.View style={[styles.shine, shineStyle]} pointerEvents="none">
+      <View style={[styles.shineClip, { borderRadius: scale(radius.md - 2) }]} pointerEvents="none">
+        <View style={[styles.shine, { opacity: 0.35 }]}>
           <LinearGradient
-            colors={["transparent", "rgba(255,255,255,0.5)", "transparent"]}
+            colors={["transparent", "rgba(255,255,255,0.22)", "transparent"]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={styles.shineGrad}
           />
-        </Animated.View>
+        </View>
       </View>
       <Text style={[styles.title, { fontSize: fontPixel(12), marginBottom: heightPixel(4) }]}>READY TO RUN</Text>
       <Text style={[styles.sub, { fontSize: fontPixel(13) }]}>Steer · Dodge · Chain your score</Text>
-    </Animated.View>
+    </View>
   );
 }
 
@@ -92,8 +56,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 0,
     bottom: 0,
-    width: "48%",
-    left: 0,
+    width: "38%",
+    left: "28%",
   },
   shineGrad: {
     flex: 1,

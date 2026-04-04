@@ -2,7 +2,7 @@ import type { ObstacleSpawnType } from "../difficulty/difficultyConfig";
 import type { ObstacleVisual } from "../types";
 import type { ObstaclePatternId } from "./runnerConfig";
 
-const VISUALS: ObstacleVisual[] = ["laser", "mine", "drone", "crystal"];
+const VISUALS: ObstacleVisual[] = ["rock", "fireball", "roundBomb", "aeroBomb"];
 
 export type ObstacleSpawnSpec = {
   lane: number;

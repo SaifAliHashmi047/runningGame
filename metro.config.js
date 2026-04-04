@@ -1,3 +1,4 @@
+const path = require('path');
 const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
 
 /**
@@ -22,6 +23,23 @@ const config = {
     ...defaultConfig.resolver,
     assetExts: assetExts.filter((ext) => ext !== 'svg'),
     sourceExts: [...sourceExts, 'svg'],
+    /**
+     * `react-native-google-mobile-ads` points `"react-native"` at `src/index.ts`; Metro then
+     * resolves TS submodules from source and can fail on `./NativeAdEventType`. Use the
+     * published `lib/module` bundle instead (same as package `"module"` field).
+     */
+    resolveRequest(context, moduleName, platform) {
+      if (moduleName === 'react-native-google-mobile-ads') {
+        return {
+          type: 'sourceFile',
+          filePath: path.resolve(
+            __dirname,
+            'node_modules/react-native-google-mobile-ads/lib/module/index.js',
+          ),
+        };
+      }
+      return context.resolveRequest(context, moduleName, platform);
+    },
   },
 };
 

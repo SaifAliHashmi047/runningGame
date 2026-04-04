@@ -1,5 +1,6 @@
 import React, { memo } from "react";
 import Animated, { useAnimatedStyle, type SharedValue } from "react-native-reanimated";
+import type { ImageSourcePropType } from "react-native";
 import type { VisualQualityTier } from "../src/game/performanceConfig";
 import HeroHoverShip from "./HeroHoverShip";
 
@@ -9,9 +10,8 @@ type Props = {
   steerSV: SharedValue<number>;
   leftSV: SharedValue<number>;
   bottomSV: SharedValue<number>;
-  pulseScaleSV: SharedValue<number>;
-  magnetYSV: SharedValue<number>;
   qualityTier: VisualQualityTier;
+  skinImage?: ImageSourcePropType;
   children?: React.ReactNode;
 };
 
@@ -25,9 +25,8 @@ function HeroGameAnchorInner({
   steerSV,
   leftSV,
   bottomSV,
-  pulseScaleSV,
-  magnetYSV,
   qualityTier,
+  skinImage,
   children,
 }: Props) {
   const posStyle = useAnimatedStyle(() => ({
@@ -36,12 +35,17 @@ function HeroGameAnchorInner({
     bottom: bottomSV.value,
     width,
     height,
-    transform: [{ scale: pulseScaleSV.value }, { translateY: magnetYSV.value }],
   }));
 
   return (
     <Animated.View style={posStyle}>
-      <HeroHoverShip width={width} height={height} steerSV={steerSV} qualityTier={qualityTier} />
+      <HeroHoverShip
+        width={width}
+        height={height}
+        steerSV={steerSV}
+        qualityTier={qualityTier}
+        skinImage={skinImage}
+      />
       {children}
     </Animated.View>
   );

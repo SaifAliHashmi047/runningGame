@@ -1,6 +1,4 @@
-import { MAX_FRAME_SCALE, TARGET_FRAME_MS } from "../performanceConfig";
-
-const MAX_SIM_SUBSTEPS = 5;
+import { MAX_FRAME_SCALE, MAX_SIM_SUBSTEPS_PER_FRAME, TARGET_FRAME_MS } from "../performanceConfig";
 
 /**
  * Builds 60Hz-normalized step weights for this frame. Uses a fixed timestep bank so
@@ -13,12 +11,13 @@ export function planSimulationSubsteps(
   outKs: number[]
 ): void {
   outKs.length = 0;
+  const maxSteps = MAX_SIM_SUBSTEPS_PER_FRAME;
   bankMsRef.current += dtMs;
-  const cap = TARGET_FRAME_MS * MAX_SIM_SUBSTEPS;
+  const cap = TARGET_FRAME_MS * maxSteps;
   if (bankMsRef.current > cap) {
     bankMsRef.current = cap;
   }
-  while (bankMsRef.current >= TARGET_FRAME_MS && outKs.length < MAX_SIM_SUBSTEPS) {
+  while (bankMsRef.current >= TARGET_FRAME_MS && outKs.length < maxSteps) {
     bankMsRef.current -= TARGET_FRAME_MS;
     outKs.push(1);
   }

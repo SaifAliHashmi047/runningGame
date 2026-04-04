@@ -1,6 +1,7 @@
 import React, { memo } from "react";
+import { Image, Platform, StyleSheet } from "react-native";
 import Animated, { useAnimatedStyle, type SharedValue } from "react-native-reanimated";
-import Coin from "../../../components/Coin";
+import { COIN_TEXTURE } from "../../assets/coins";
 import type { EntityPosMap } from "./entityPositions";
 
 type Props = {
@@ -8,15 +9,6 @@ type Props = {
   coinId: number;
   positionsById: SharedValue<EntityPosMap>;
 };
-
-const staticShell = (size: number) =>
-  ({
-    position: "absolute" as const,
-    left: 0,
-    top: 0,
-    width: size,
-    height: size,
-  }) as const;
 
 function TrackedCoinInner({ size, coinId, positionsById }: Props) {
   const motion = useAnimatedStyle(() => {
@@ -27,11 +19,37 @@ function TrackedCoinInner({ size, coinId, positionsById }: Props) {
   });
 
   return (
-    <Animated.View pointerEvents="none" style={[staticShell(size), motion]} collapsable={false}>
-      <Coin size={size} embedded />
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        {
+          position: "absolute",
+          left: 0,
+          top: 0,
+          width: size,
+          height: size,
+          backgroundColor: "transparent",
+        },
+        motion,
+      ]}
+      collapsable={false}
+    >
+      <Image
+        source={COIN_TEXTURE}
+        style={[styles.art, { width: size, height: size }]}
+        resizeMode="contain"
+        fadeDuration={Platform.OS === "android" ? 0 : undefined}
+        accessibilityIgnoresInvertColors
+      />
     </Animated.View>
   );
 }
+
+const styles = StyleSheet.create({
+  art: {
+    backgroundColor: "transparent",
+  },
+});
 
 function propsEqual(p: Props, n: Props) {
   return p.size === n.size && p.coinId === n.coinId && p.positionsById === n.positionsById;

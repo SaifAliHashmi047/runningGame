@@ -3,11 +3,9 @@
  * - Android: `android/app/src/main/res/raw/` (lowercase, underscores)
  * - iOS: `ios/StackHouse/` (in Xcode target Resources)
  *
- * Replace placeholder WAVs from `scripts/gen-game-audio-wavs.mjs` with real MP3/WAV.
+ * Run `node scripts/gen-game-audio-wavs.mjs` to emit placeholder WAVs.
  */
 export const BUNDLE_AUDIO = {
-  bgGameplay: "bg_gameplay_loop.wav",
-  bgMenu: "bg_menu_loop.wav",
   shipHum: "ship_hum_loop.wav",
   coin1: "coin_collect_1.wav",
   coin2: "coin_collect_2.wav",
