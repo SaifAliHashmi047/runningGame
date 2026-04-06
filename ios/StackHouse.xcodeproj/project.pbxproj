@@ -337,9 +337,13 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
 				PRODUCT_NAME = StackHouse;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_OPTIMIZATION_LEVEL = "-Osize";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
+				STRIP_INSTALLED_PRODUCT = YES;
+				DEAD_CODE_STRIPPING = YES;
+				COPY_PHASE_STRIP = YES;
 			};
 			name = Release;
 		};
@@ -478,6 +482,7 @@
 					"\"$(inherited)\"",
 				);
 				MTL_ENABLE_DEBUG_INFO = NO;
+				GCC_OPTIMIZATION_LEVEL = s;
 				OTHER_CFLAGS = (
 					"$(inherited)",
 					"-DRCT_REMOVE_LEGACY_ARCH=1",

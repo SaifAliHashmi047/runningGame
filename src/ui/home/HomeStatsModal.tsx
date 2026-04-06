@@ -7,8 +7,9 @@ import {
   TouchableWithoutFeedback,
   Pressable,
   ScrollView,
-  Platform,
 } from "react-native";
+import LinearGradient from "react-native-linear-gradient";
+import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getAudioManager } from "../../audio";
 import { SHOP_SKIN_ROWS } from "../../game/heroSkinCatalog";
@@ -18,8 +19,8 @@ import {
   SAVED_COINS_KEY,
   TOTAL_RUNS_KEY,
 } from "../../storage/persistenceKeys";
-import { scale } from "../../../utils/responsive";
-import { colors, radius } from "./theme";
+import { heightPixel, scale } from "../../../utils/responsive";
+import { colors, fontUi, overlay, radius, shadow } from "./theme";
 import { useResponsive } from "./useResponsive";
 
 type Props = {
@@ -95,20 +96,31 @@ export default function HomeStatsModal({ visible, highScore, onClose }: Props) {
     >
       <View style={styles.modalRoot}>
         <TouchableWithoutFeedback onPress={onClose}>
-          <View style={styles.modalBackdrop} />
+          <Animated.View entering={FadeIn.duration(180)} style={styles.modalBackdrop} />
         </TouchableWithoutFeedback>
         <View style={[styles.modalCenter, { padding: scale(20) }]}>
-          <View
-            style={[
-              styles.modalCard,
-              {
-                borderRadius: scale(radius.lg),
-                paddingVertical: heightPixel(18),
-                paddingHorizontal: scale(16),
-                maxHeight: "78%",
-              },
-            ]}
+          <Animated.View
+            entering={FadeInDown.springify().damping(20).stiffness(220)}
+            style={styles.cardShell}
           >
+            <LinearGradient
+              colors={["rgba(0,229,255,0.45)", "rgba(0,229,255,0.1)", "transparent"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.accentTop}
+              pointerEvents="none"
+            />
+            <View
+              style={[
+                styles.modalCard,
+                {
+                  borderRadius: scale(radius.lg),
+                  paddingVertical: heightPixel(18),
+                  paddingHorizontal: scale(16),
+                  maxHeight: "78%",
+                },
+              ]}
+            >
             <Text style={[styles.modalTitle, { fontSize: fontPixel(18) }]}>Your stats</Text>
             <Text style={[styles.modalSub, { fontSize: fontPixel(12), marginTop: heightPixel(4) }]}>
               Progress carries across runs
@@ -173,7 +185,8 @@ export default function HomeStatsModal({ visible, highScore, onClose }: Props) {
             >
               <Text style={[styles.closeBtnText, { fontSize: fontPixel(14) }]}>Close</Text>
             </Pressable>
-          </View>
+            </View>
+          </Animated.View>
         </View>
       </View>
     </Modal>
@@ -227,26 +240,40 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: overlay.modalScrim,
   },
   modalCenter: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  modalCard: {
+  cardShell: {
     width: "100%",
     maxWidth: scale(400),
-    backgroundColor: colors.card,
-    borderWidth: scale(1),
-    borderColor: colors.cardBorder,
+    borderRadius: scale(radius.lg),
+    overflow: "hidden",
+    ...shadow.heavy,
+  },
+  accentTop: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    height: heightPixel(3),
+    zIndex: 2,
+  },
+  modalCard: {
+    width: "100%",
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderSubtle,
   },
   modalTitle: {
     color: colors.textPrimary,
     fontWeight: "800",
     letterSpacing: 0.6,
     textAlign: "center",
-    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
+    fontFamily: fontUi.mono,
   },
   modalSub: {
     color: colors.textTertiary,
@@ -258,33 +285,34 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: scale(12),
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: colors.surfaceRow,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: colors.borderSubtle,
   },
   statLabel: {
     color: colors.textSecondary,
     fontWeight: "700",
     flexShrink: 0,
+    fontFamily: fontUi.mono,
   },
   statValue: {
-    color: colors.accent,
+    color: colors.ice,
     fontWeight: "800",
     textAlign: "right",
     flex: 1,
-    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
+    fontFamily: fontUi.mono,
   },
   closeBtn: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(0,229,255,0.22)",
+    backgroundColor: colors.accentMuted,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(0,229,255,0.45)",
+    borderColor: colors.borderGlow,
   },
   closeBtnText: {
     color: colors.textPrimary,
     fontWeight: "800",
     letterSpacing: 0.8,
-    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
+    fontFamily: fontUi.mono,
   },
 });

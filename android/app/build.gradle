@@ -59,6 +59,9 @@ react {
 
     /* Autolinking */
     autolinkLibrariesWithApp()
+
+    /* Hermes: keep -O; drop -output-source-map for slightly leaner release pipeline (maps not in APK). */
+    hermesFlags = ["-O"]
 }
 
 /**
@@ -106,6 +109,8 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            minifyEnabled false
+            shrinkResources false
         }
         release {
             signingConfig keystorePropertiesFile.exists()
@@ -113,6 +118,7 @@ android {
                 : signingConfigs.debug
             minifyEnabled true
             shrinkResources true
+            /* R8 in full mode (gradle.properties) + optimize proguard file. */
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }

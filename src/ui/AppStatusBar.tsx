@@ -7,8 +7,8 @@ function applyAndroidTranslucent() {
 }
 
 /**
- * Transparent status bar — content draws under the bar; pair with SafeAreaView insets.
- * Re-applies on resume because some OEMs / RN paths reset bar appearance.
+ * Transparent / overlay status bar so full-bleed backgrounds show edge-to-edge.
+ * Gameplay HUD stays inside `SafeAreaView` top inset; Android re-applies on resume.
  */
 export default function AppStatusBar() {
   useEffect(() => {
@@ -22,7 +22,7 @@ export default function AppStatusBar() {
 
   return (
     <StatusBar
-      translucent={Platform.OS === "android"}
+      translucent
       backgroundColor="transparent"
       barStyle="light-content"
     />

@@ -7,7 +7,6 @@ import HeroHoverShip from "./HeroHoverShip";
 type Props = {
   width: number;
   height: number;
-  steerSV: SharedValue<number>;
   leftSV: SharedValue<number>;
   bottomSV: SharedValue<number>;
   qualityTier: VisualQualityTier;
@@ -17,12 +16,11 @@ type Props = {
 
 /**
  * Positions the hero with Reanimated shared values (updated from the RAF loop)
- * so React does not reconcile `left` / `bottom` on the ship every frame.
+ * so React does not reconcile `left` / `bottom` every frame.
  */
 function HeroGameAnchorInner({
   width,
   height,
-  steerSV,
   leftSV,
   bottomSV,
   qualityTier,
@@ -38,14 +36,8 @@ function HeroGameAnchorInner({
   }));
 
   return (
-    <Animated.View style={posStyle}>
-      <HeroHoverShip
-        width={width}
-        height={height}
-        steerSV={steerSV}
-        qualityTier={qualityTier}
-        skinImage={skinImage}
-      />
+    <Animated.View pointerEvents="none" style={posStyle}>
+      <HeroHoverShip width={width} height={height} qualityTier={qualityTier} skinImage={skinImage} />
       {children}
     </Animated.View>
   );

@@ -69,7 +69,7 @@ export default function BackgroundWrapper({
   const renderBg = (cfg: { type: BackgroundType; solidColor: string; colors: string[]; imageSource?: ImageSourcePropType }) => {
     if (cfg.type === "image" && cfg.imageSource) {
       return (
-        <ImageBackground source={cfg.imageSource} resizeMode="cover" style={styles.fill} imageStyle={styles.imageRound} />
+        <ImageBackground source={cfg.imageSource} resizeMode="contain" style={styles.fill} imageStyle={styles.imageRound} />
       );
     }
     if (cfg.type === "gradient") {

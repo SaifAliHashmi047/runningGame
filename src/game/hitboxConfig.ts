@@ -18,20 +18,20 @@ export type ObstacleHitboxInsets = {
   right: number;
 };
 
-/** Per-visual collision insets (pixels) applied after `obstacleVisualSize` is computed. */
+/** Per-visual collision insets (pixels) — lower = larger hitbox vs art. */
 export const OBSTACLE_HITBOX_INSETS: Record<ObstacleVisual, ObstacleHitboxInsets> = {
-  rock: { top: 10, bottom: 10, left: 8, right: 8 },
-  fireball: { top: 10, bottom: 8, left: 10, right: 10 },
-  roundBomb: { top: 10, bottom: 10, left: 10, right: 10 },
-  aeroBomb: { top: 8, bottom: 10, left: 12, right: 12 },
+  rock: { top: 5, bottom: 5, left: 4, right: 4 },
+  fireball: { top: 5, bottom: 4, left: 5, right: 5 },
+  roundBomb: { top: 5, bottom: 5, left: 5, right: 5 },
+  aeroBomb: { top: 4, bottom: 5, left: 6, right: 6 },
 };
 
-/** Smaller core for the ship — reduces false positives vs obstacle collision insets. */
+/** Ship collision vs obstacles — lower values = larger (more forgiving) hitbox. */
 export const PLAYER_HITBOX_INSETS: ObstacleHitboxInsets = {
-  top: 8,
-  bottom: 12,
-  left: 10,
-  right: 10,
+  top: 4,
+  bottom: 6,
+  left: 5,
+  right: 5,
 };
 
 export const MIN_COLLISION_DIMENSION_PX = 4;

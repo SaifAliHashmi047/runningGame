@@ -60,6 +60,12 @@
 # SoLoader / dynamic libs
 -keep class com.facebook.soloader.** { *; }
 
+# Google Mobile Ads (react-native-google-mobile-ads / Play Services Ads)
+-keep class com.google.android.gms.ads.** { *; }
+-keep class com.google.ads.** { *; }
+-dontwarn com.google.android.gms.ads.**
+-dontwarn com.google.android.gms.internal.ads.**
+
 # Preserve line numbers for production crash reports (mapping still helps deobfuscate)
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile

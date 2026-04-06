@@ -1,27 +1,30 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { cancelAnimation, useSharedValue } from "react-native-reanimated";
+import Animated, {
+  cancelAnimation,
+  ReduceMotion,
+  ReducedMotionConfig,
+  useSharedValue,
+} from "react-native-reanimated";
 import {
   View,
   Text,
   StyleSheet,
   TouchableWithoutFeedback,
-  Pressable,
   Platform,
   Modal,
   Image,
   AppState,
-  ActivityIndicator,
+  useWindowDimensions,
+  type View as RNView,
   type GestureResponderEvent,
   type LayoutChangeEvent,
 } from "react-native";
 import type { ShipVariant } from "./components/Ship";
 import HeroGameAnchor from "./components/HeroGameAnchor";
-import SkyLane from "./components/SkyLane";
 import ShopModal from "./components/ShopModal";
 import { powerUpWorldRenderOutset } from "./components/PowerUp";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import { AdsRoot } from "./src/ads";
-import { showPlayInterstitialThen } from "./src/ads/playInterstitial";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { AdsRoot, HomeScreenBanner } from "./src/ads";
 import {
   prepareShopRewardedAd,
   showShopRewardedForCoins,
@@ -39,6 +42,13 @@ import {
   type BestSingleRunStats,
 } from "./src/game/milestoneUnlock";
 import HomeScreen from "./src/screens/HomeScreen";
+import {
+  routeEnterGame,
+  routeEnterHome,
+  routeExitGame,
+  routeExitHome,
+} from "./src/ui/navigation/routeTransition";
+import GameSplashScreen from "./src/ui/splash/GameSplashScreen";
 import { GameplayReducedMotion } from "./src/game/motion/GameplayReducedMotion";
 import type { ObstacleVisual } from "./src/game/types";
 import {
@@ -50,7 +60,7 @@ import {
   playerCollisionAabb,
 } from "./src/game/hitboxes";
 import HitboxDebugOverlay from "./src/ui/HitboxDebugOverlay";
-import AnimatedDayCycleBackground from "./src/ui/AnimatedDayCycleBackground";
+import FuturisticGameplayBackground from "./src/ui/game/FuturisticGameplayBackground";
 import { COIN_TEXTURE } from "./src/assets/coins";
 import { OBSTACLE_TEXTURE_SOURCES } from "./src/assets/obstacles";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -149,6 +159,11 @@ import {
 } from "./src/game/performanceSampler";
 import FpsPerfOverlay from "./src/ui/FpsPerfOverlay";
 import GameRunHud from "./src/ui/game/GameRunHud";
+import GameOverOverlay from "./src/ui/game/GameOverOverlay";
+import PauseRibbon from "./src/ui/game/PauseRibbon";
+import GameplayLaneGuide from "./src/ui/game/GameplayLaneGuide";
+import AmbientParticles from "./src/ui/game/AmbientParticles";
+import PowerActionButton from "./src/ui/game/PowerActionButton";
 import {
   HUD_SCORE_THROTTLE_MS,
   MAX_ACTIVE_COINS,
@@ -177,18 +192,6 @@ import {
   screenWidth,
 } from "./utils/responsive";
 
-/**
- * Score tiers rotate which day-cycle SVG is mapped to each beat (morning/day/sunset/night).
- * Same four images, different order per tier — no full-screen color wash over the art.
- */
-const BG_IMAGE_SCORE_SPAN = 3500;
-const BG_IMAGE_PHASE_COUNT = 4;
-function getBackgroundImagePhase(distanceFloor: number): number {
-  return (
-    Math.floor(Math.max(0, distanceFloor) / BG_IMAGE_SCORE_SPAN) %
-    BG_IMAGE_PHASE_COUNT
-  );
-}
 const SCREEN_WIDTH = screenWidth;
 const SCREEN_HEIGHT = screenHeight;
 
@@ -227,8 +230,63 @@ const FINGER_DEAD_ZONE_PX = 1.15;
 const HERO_FOLLOW_LERP = 0.32;
 const HERO_MAX_STEP_PER_FRAME = scale(38);
 
+/** Top of usable playfield (screen Y from top) — keep hero AABB below HUD chrome. */
+const GAMEPLAY_TOP_INSET = heightPixel(96);
+/**
+ * Minimum space from the **playfield bottom** to the hero's bottom edge (same coords as `bottom` style).
+ * Lets `playerSteerY` go negative so the ship can sit near the bottom of the screen; was stuck at ~`GROUND_HEIGHT`
+ * when steer was clamped to ≥ 0.
+ */
+const GAMEPLAY_BOTTOM_HERO_INSET = heightPixel(14);
+
 function clampPlayerLeft(left: number): number {
   return Math.max(0, Math.min(SCREEN_WIDTH - PLAYER_WIDTH, left));
+}
+
+/** Lowest allowed steer (can be negative). `jumpY` is jump-only height. */
+function minPlayerSteerY(jumpY: number): number {
+  return GAMEPLAY_BOTTOM_HERO_INSET - GROUND_HEIGHT - jumpY;
+}
+
+/** Highest allowed steer (positive = ship higher on screen). `jumpY` is jump-only height. */
+function maxPlayerSteerY(jumpY: number): number {
+  return (
+    SCREEN_HEIGHT -
+    GAMEPLAY_TOP_INSET -
+    GROUND_HEIGHT -
+    jumpY -
+    PLAYER_HEIGHT
+  );
+}
+
+function clampPlayerSteerY(steer: number, jumpY: number): number {
+  const lo = minPlayerSteerY(jumpY);
+  const hi = maxPlayerSteerY(jumpY);
+  if (hi <= lo) return lo;
+  return Math.max(lo, Math.min(hi, steer));
+}
+
+/**
+ * Map responder `locationY` into the same space as `SCREEN_HEIGHT`.
+ * Clamp to the play view height so a finger dragged under/over the play area (e.g. onto the
+ * banner) does not produce bogus Y (which was snapping the hero to the top).
+ */
+function touchLocationYToScreenY(
+  locationY: number,
+  viewHeight: number,
+): number {
+  const h = viewHeight > 0 ? viewHeight : SCREEN_HEIGHT;
+  const ly = Math.max(0, Math.min(h, locationY));
+  return (ly / h) * SCREEN_HEIGHT;
+}
+
+function touchLocationXToScreenX(
+  locationX: number,
+  viewWidth: number,
+): number {
+  const w = viewWidth > 0 ? viewWidth : SCREEN_WIDTH;
+  const lx = Math.max(0, Math.min(w, locationX));
+  return (lx / w) * SCREEN_WIDTH;
 }
 
 function nearestLaneIndex(playerLeft: number): number {
@@ -301,6 +359,9 @@ function dedupeCoinsInPlace(
 
 type SimState = {
   playerY: number;
+  /** Baseline vertical offset from finger steer (positive = higher on screen). Independent of jump. */
+  playerSteerY: number;
+  playerSteerYTarget: number;
   playerX: number;
   playerXTarget: number;
   velocity: number;
@@ -321,7 +382,6 @@ type SimState = {
   /** Coins picked up this run only (trail + magnet); used for milestone “coins in one run”. */
   coinsEarnedThisRun: number;
   paused: boolean;
-  holdFreeze: boolean;
   shakeT: number;
   shakePhase: number;
   shieldUntil: number; // ms timestamp
@@ -368,6 +428,40 @@ type SimState = {
   /** Reused for obstacle-pattern coin drops (no per-spawn `[]`). */
   patternCoinScratch: CoinItem[];
 };
+
+/** World vertical offset: steer baseline + jump arc (`playerY` is jump-only for physics). */
+function playerWorldYOffset(s: SimState): number {
+  return s.playerSteerY + s.playerY;
+}
+
+/** Slop around hero visual for starting a drag (screen-space px). */
+const HERO_DRAG_START_SLOP = scale(12);
+
+/**
+ * Whether a touch in the play view started on the hero (screen-space AABB + slop).
+ * Only then should the pan responder claim the gesture.
+ */
+function isTouchInsideHeroDragStart(
+  locationX: number,
+  locationY: number,
+  viewW: number,
+  viewH: number,
+  s: SimState,
+): boolean {
+  const sx = touchLocationXToScreenX(locationX, viewW);
+  const sy = touchLocationYToScreenY(locationY, viewH);
+  const steer = s.playerSteerY;
+  const jump = s.playerY;
+  const slop = HERO_DRAG_START_SLOP;
+  const left = s.playerX - slop;
+  const right = s.playerX + PLAYER_WIDTH + slop;
+  const top =
+    SCREEN_HEIGHT -
+    (GROUND_HEIGHT + steer + jump + PLAYER_HEIGHT) -
+    slop;
+  const bottom = SCREEN_HEIGHT - (GROUND_HEIGHT + steer + jump) + slop;
+  return sx >= left && sx <= right && sy >= top && sy <= bottom;
+}
 
 function collides(playerY: number, playerX: number, obs: Obstacle): boolean {
   const playerBox = playerCollisionAabb({
@@ -471,6 +565,8 @@ function buildPowerRenderSpecs(
 
 const initialSim = (): SimState => ({
   playerY: 0,
+  playerSteerY: 0,
+  playerSteerYTarget: 0,
   playerX: PLAYER_X,
   playerXTarget: PLAYER_X,
   velocity: 0,
@@ -487,7 +583,6 @@ const initialSim = (): SimState => ({
   coinsCollected: 0,
   coinsEarnedThisRun: 0,
   paused: false,
-  holdFreeze: false,
   shakeT: 0,
   shakePhase: 0,
   shieldUntil: 0,
@@ -537,9 +632,15 @@ function snapshotDangerFields() {
 
 type GameScreenProps = {
   onExitToHome?: () => void;
+  /** Anchored banner (same unit as home); keep off until splash completes. */
+  showBannerAds?: boolean;
 };
 
-function GameScreen({ onExitToHome }: GameScreenProps) {
+function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
+  const insets = useSafeAreaInsets();
+  const { width: windowW, height: windowH } = useWindowDimensions();
+  const gameAdReserve =
+    Math.max(insets.bottom, heightPixel(8)) + heightPixel(52);
   const sim = useRef<SimState>(initialSim());
   const obstacleIdRef = useRef(0);
   /** Strictly increasing — never mix offset formulas per type (those can collide). */
@@ -560,8 +661,14 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
   const isDraggingRef = useRef(false);
   const lastDragEndMsRef = useRef(0);
   const lastFingerXRef = useRef<number | null>(null);
+  const lastFingerYRef = useRef<number | null>(null);
   /** Finger X minus ship center at touch start — prevents snap when touch begins away from hero. */
   const touchOffsetRef = useRef(0);
+  /** Finger Y minus ship visual center (from top) at touch start — same idea as X. */
+  const touchOffsetYRef = useRef(0);
+  const gameLayoutRef = useRef<{ w: number; h: number } | null>(null);
+  const containerRef = useRef<RNView | null>(null);
+  const containerWinRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const perfSamplerRef = useRef(new PerfSampler());
   const lastFramePerfRef = useRef(perfNow());
   const lastPerfUiRef = useRef(0);
@@ -577,7 +684,6 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     dangerVisual: "none" as DangerVisual,
     feverActive: false,
   }));
-  const [heroAuraMask, setHeroAuraMask] = useState(0);
   const [uiEpoch, setUiEpoch] = useState(0);
   const [runPaused, setRunPaused] = useState(false);
   const [videoRewardBusy, setVideoRewardBusy] = useState(false);
@@ -588,13 +694,11 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
   } | null>(null);
 
   const lastWorldFxKeyRef = useRef("none|0");
-  const lastAuraMaskRef = useRef(0);
   /** User pause (separate from shop modal) — ref stays in sync for `applyPauseFromSources`. */
   const runPausedRef = useRef(false);
 
   const heroLeftSV = useSharedValue(PLAYER_X);
   const heroBottomSV = useSharedValue(GROUND_HEIGHT);
-  const heroSteerSV = useSharedValue(0);
 
   const obsPositionsSV = useSharedValue<EntityPosMap>({});
   const coinPositionsSV = useSharedValue<EntityPosMap>({});
@@ -621,12 +725,10 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
   const [runSessionKey, setRunSessionKey] = useState(0);
 
   const [runHud, setRunHud] = useState({ score: 0, distanceFloor: 0 });
-  /** Matches gameplay `View` size inside SafeArea — day-cycle SVG must use this, not raw window dims. */
+  /** Playable `gameRoot` size (inside top/side safe area) — entities / layout use this space. */
   const [gameLayout, setGameLayout] = useState<{ w: number; h: number } | null>(
     null,
   );
-  const [bgPhase, setBgPhase] = useState(0);
-  const bgPhaseRef = useRef(0);
   const lastHudPushRef = useRef(0);
   const lastHudScoreRef = useRef(0);
   const lastHudDistRef = useRef(0);
@@ -812,12 +914,12 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     isDraggingRef.current = false;
     cancelAnimation(heroLeftSV);
     cancelAnimation(heroBottomSV);
-    cancelAnimation(heroSteerSV);
     heroLeftSV.value = PLAYER_X;
     heroBottomSV.value = GROUND_HEIGHT;
-    heroSteerSV.value = 0;
     lastFingerXRef.current = null;
+    lastFingerYRef.current = null;
     touchOffsetRef.current = 0;
+    touchOffsetYRef.current = 0;
     obsPositionsSV.value = {};
     coinPositionsSV.value = {};
     powerPositionsSV.value = {};
@@ -841,17 +943,13 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     setPerfStats(null);
     setVisualTier(0);
     lastWorldFxKeyRef.current = "none|0";
-    lastAuraMaskRef.current = 0;
     setWorldFx({ dangerVisual: "none", feverActive: false });
-    setHeroAuraMask(0);
     setZoneBanner(null);
     setRunHud({ score: 0, distanceFloor: 0 });
-    setBgPhase(0);
-    bgPhaseRef.current = 0;
     lastHudPushRef.current = 0;
     lastHudScoreRef.current = 0;
     lastHudDistRef.current = 0;
-  }, [heroBottomSV, heroLeftSV, heroSteerSV]);
+  }, [heroBottomSV, heroLeftSV]);
 
   useEffect(() => {
     if (!zoneBanner) return;
@@ -935,7 +1033,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
     let ow = 0;
     for (let i = 0; i < oa.length; i++) {
       const ob = oa[i];
-      if (collides(s.playerY, s.playerX, ob)) {
+      if (collides(playerWorldYOffset(s), s.playerX, ob)) {
         obsPool.release(ob);
         continue;
       }
@@ -1021,8 +1119,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         return;
       }
 
-      // If paused or holding finger on ship (freeze), do not advance simulation; just keep the UI responsive
-      if (s.paused || s.holdFreeze) {
+      if (s.paused) {
         rafRef.current = requestAnimationFrame(loop);
         return;
       }
@@ -1111,6 +1208,21 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
           Math.abs(s.playerXTarget - s.playerX) < 0.4
         ) {
           s.playerXTarget = s.playerX;
+        }
+
+        const desiredSteer = clampPlayerSteerY(s.playerSteerYTarget, s.playerY);
+        let nextSteer =
+          s.playerSteerY + (desiredSteer - s.playerSteerY) * t;
+        const steerStep = nextSteer - s.playerSteerY;
+        if (Math.abs(steerStep) > maxStep) {
+          nextSteer = s.playerSteerY + Math.sign(steerStep) * maxStep;
+        }
+        s.playerSteerY = clampPlayerSteerY(nextSteer, s.playerY);
+        if (
+          !isDraggingRef.current &&
+          Math.abs(s.playerSteerYTarget - s.playerSteerY) < 0.4
+        ) {
+          s.playerSteerYTarget = s.playerSteerY;
         }
 
         // Update press shake timer
@@ -1309,11 +1421,12 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
           if (s.nearMissCooldown < 0) s.nearMissCooldown = 0;
         }
 
+        const pwY = playerWorldYOffset(s);
         const pLeft = s.playerX;
         const pRight = s.playerX + PLAYER_WIDTH;
         const pTop =
-          SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY + PLAYER_HEIGHT);
-        const pBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY);
+          SCREEN_HEIGHT - (GROUND_HEIGHT + pwY + PLAYER_HEIGHT);
+        const pBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + pwY);
         const canDie = nowTs >= s.hitGraceUntil && nowTs >= s.ghostPhaseUntil;
         const scanNearMiss = s.nearMissCooldown === 0;
         const playerLane = nearestLaneIndex(s.playerX);
@@ -1355,7 +1468,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
                   nearHit = true;
                 }
               }
-              if (canDie && !hit && collides(s.playerY, s.playerX, obs)) {
+              if (canDie && !hit && collides(pwY, s.playerX, obs)) {
                 hit = true;
               }
             },
@@ -1379,7 +1492,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
           if (nowTs < s.magnetUntil) {
             const px = s.playerX + PLAYER_WIDTH / 2;
             const py =
-              SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY + PLAYER_HEIGHT / 2);
+              SCREEN_HEIGHT - (GROUND_HEIGHT + pwY + PLAYER_HEIGHT / 2);
             const ox = pu.x + pu.size / 2;
             const oy = pu.y + pu.size / 2;
             const dx = px - ox;
@@ -1418,7 +1531,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
           if (nowTs < s.magnetUntil) {
             const px = s.playerX + PLAYER_WIDTH / 2;
             const py =
-              SCREEN_HEIGHT - (GROUND_HEIGHT + s.playerY + PLAYER_HEIGHT / 2);
+              SCREEN_HEIGHT - (GROUND_HEIGHT + pwY + PLAYER_HEIGHT / 2);
             const ox = co.x + co.size / 2;
             const oy = co.y + co.size / 2;
             const dx = px - ox;
@@ -1525,7 +1638,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
             let ow = 0;
             for (let i = 0; i < oa.length; i++) {
               const ob = oa[i];
-              if (collides(s.playerY, s.playerX, ob)) {
+              if (collides(pwY, s.playerX, ob)) {
                 obsPool.release(ob);
                 continue;
               }
@@ -1542,7 +1655,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         let puCollectW = 0;
         for (let pi = 0; pi < s.powerUps.length; pi++) {
           const pu = s.powerUps[pi];
-          if (collidesPower(s.playerY, s.playerX, pu)) {
+          if (collidesPower(pwY, s.playerX, pu)) {
             const { type } = pu;
             const d = POWERUP_DEFS[type];
             s.pickupFlashKind = type;
@@ -1638,7 +1751,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         let coinCollectW = 0;
         for (let ci = 0; ci < s.coins.length; ci++) {
           const c = s.coins[ci];
-          if (collidesCoin(s.playerY, s.playerX, c)) {
+          if (collidesCoin(pwY, s.playerX, c)) {
             s.coinsCollected += 1;
             s.coinsEarnedThisRun += 1;
             scheduleCoinPersist();
@@ -1760,11 +1873,7 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
       heroLeftSV.value =
         s.playerX +
         (s.shakeT > 0 ? Math.sin(s.shakePhase) * (s.shakeT * 0.4) : 0);
-      heroBottomSV.value = GROUND_HEIGHT + s.playerY;
-      heroSteerSV.value = Math.max(
-        -1,
-        Math.min(1, (s.playerXTarget - s.playerX) / Math.max(48, scale(110))),
-      );
+      heroBottomSV.value = GROUND_HEIGHT + playerWorldYOffset(s);
 
       if (nowPerf - lastHudPushRef.current >= HUD_SCORE_THROTTLE_MS) {
         lastHudPushRef.current = nowPerf;
@@ -1777,12 +1886,6 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
         }
       }
 
-      const nextBg = getBackgroundImagePhase(Math.floor(s.runDistance));
-      if (nextBg !== bgPhaseRef.current) {
-        bgPhaseRef.current = nextBg;
-        setBgPhase(nextBg);
-      }
-
       const wx = `${s.dangerVisual}|${s.feverActive ? 1 : 0}`;
       if (wx !== lastWorldFxKeyRef.current) {
         lastWorldFxKeyRef.current = wx;
@@ -1790,17 +1893,6 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
           dangerVisual: s.dangerVisual,
           feverActive: s.feverActive,
         });
-      }
-
-      let auraMask = 0;
-      if (nowTs < s.shieldUntil) auraMask |= 1;
-      if (nowTs < s.x2Until) auraMask |= 2;
-      if (nowTs < s.magnetUntil) auraMask |= 4;
-      if (nowTs < s.boostUntil) auraMask |= 8;
-      if (nowTs < s.ghostPhaseUntil) auraMask |= 16;
-      if (auraMask !== lastAuraMaskRef.current) {
-        lastAuraMaskRef.current = auraMask;
-        setHeroAuraMask(auraMask);
       }
 
       let fx = 0;
@@ -1892,84 +1984,149 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
 
   void uiEpoch;
 
+  const onStartShouldSetHeroResponder = useCallback(
+    (e: GestureResponderEvent) => {
+      if (gameOver || paused || sim.current.shopOpen || runPausedRef.current) {
+        return false;
+      }
+      const layout = gameLayoutRef.current;
+      const lw = layout && layout.w > 0 ? layout.w : SCREEN_WIDTH;
+      const lh = layout && layout.h > 0 ? layout.h : SCREEN_HEIGHT;
+      return isTouchInsideHeroDragStart(
+        e.nativeEvent.locationX,
+        e.nativeEvent.locationY,
+        lw,
+        lh,
+        sim.current,
+      );
+    },
+    [gameOver, paused],
+  );
+
   const onResponderGrant = useCallback((e: GestureResponderEvent) => {
-    const fingerX = e.nativeEvent.locationX;
-    const fingerY = e.nativeEvent.locationY;
+    const layout = gameLayoutRef.current;
+    const lw = layout && layout.w > 0 ? layout.w : SCREEN_WIDTH;
+    const lh = layout && layout.h > 0 ? layout.h : SCREEN_HEIGHT;
     const s0 = sim.current;
-    const shipCenter = s0.playerX + PLAYER_WIDTH / 2;
-    touchOffsetRef.current = fingerX - shipCenter;
+    // Cache window-relative geometry so we can prefer `pageY` (more stable near system nav areas)
+    // over `locationY` (can jump to 0 on some devices when finger goes below the view).
+    containerRef.current?.measureInWindow((x, y, w, h) => {
+      if (w > 0 && h > 0) containerWinRef.current = { x, y, w, h };
+    });
+
+    const fingerSX = touchLocationXToScreenX(e.nativeEvent.locationX, lw);
+    const fingerSY = touchLocationYToScreenY(e.nativeEvent.locationY, lh);
+    const centerSX = s0.playerX + PLAYER_WIDTH / 2;
+    const centerSY =
+      SCREEN_HEIGHT -
+      (GROUND_HEIGHT + s0.playerSteerY + s0.playerY + PLAYER_HEIGHT / 2);
+    touchOffsetRef.current = fingerSX - centerSX;
+    touchOffsetYRef.current = fingerSY - centerSY;
     isDraggingRef.current = true;
-    lastFingerXRef.current = fingerX;
-    s0.playerXTarget = clampPlayerLeft(
-      fingerX - touchOffsetRef.current - PLAYER_WIDTH / 2,
+    lastFingerXRef.current = fingerSX;
+    lastFingerYRef.current = fingerSY;
+    const desiredCenterX = fingerSX - touchOffsetRef.current;
+    const desiredCenterY = fingerSY - touchOffsetYRef.current;
+    s0.playerXTarget = clampPlayerLeft(desiredCenterX - PLAYER_WIDTH / 2);
+    s0.playerSteerYTarget = clampPlayerSteerY(
+      SCREEN_HEIGHT -
+        desiredCenterY -
+        PLAYER_HEIGHT / 2 -
+        GROUND_HEIGHT -
+        s0.playerY,
+      s0.playerY,
     );
-    const shipLeft = s0.playerX;
-    const shipRight = s0.playerX + PLAYER_WIDTH;
-    const shipBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + s0.playerY);
-    const shipTop = shipBottom - PLAYER_HEIGHT;
-    const withinX = fingerX >= shipLeft && fingerX <= shipRight;
-    const withinY = fingerY >= shipTop && fingerY <= shipBottom;
-    if (withinX && withinY) {
-      sim.current.holdFreeze = true;
-    }
   }, []);
 
   const onResponderMove = useCallback((e: GestureResponderEvent) => {
-    const x = e.nativeEvent.locationX;
-    if (lastFingerXRef.current == null) {
-      lastFingerXRef.current = x;
+    if (!isDraggingRef.current) return;
+    const layout = gameLayoutRef.current;
+    const lw = layout && layout.w > 0 ? layout.w : SCREEN_WIDTH;
+    const lh = layout && layout.h > 0 ? layout.h : SCREEN_HEIGHT;
+    const win = containerWinRef.current;
+    const localX =
+      win != null ? e.nativeEvent.pageX - win.x : e.nativeEvent.locationX;
+    const localY =
+      win != null ? e.nativeEvent.pageY - win.y : e.nativeEvent.locationY;
+    const fingerSX = touchLocationXToScreenX(localX, lw);
+    const fingerSY = touchLocationYToScreenY(localY, lh);
+    if (lastFingerXRef.current == null || lastFingerYRef.current == null) {
+      lastFingerXRef.current = fingerSX;
+      lastFingerYRef.current = fingerSY;
       return;
     }
-    if (Math.abs(x - lastFingerXRef.current) < FINGER_DEAD_ZONE_PX) {
+    const dx = fingerSX - lastFingerXRef.current;
+    const dy = fingerSY - lastFingerYRef.current;
+    if (
+      Math.abs(dx) < FINGER_DEAD_ZONE_PX &&
+      Math.abs(dy) < FINGER_DEAD_ZONE_PX
+    ) {
       return;
     }
-    lastFingerXRef.current = x;
-    const desiredCenter = x - touchOffsetRef.current;
-    sim.current.playerXTarget = clampPlayerLeft(
-      desiredCenter - PLAYER_WIDTH / 2,
+    lastFingerXRef.current = fingerSX;
+    lastFingerYRef.current = fingerSY;
+    const s = sim.current;
+    const jump = s.playerY;
+    const desiredCenterX = fingerSX - touchOffsetRef.current;
+    const desiredCenterY = fingerSY - touchOffsetYRef.current;
+    s.playerXTarget = clampPlayerLeft(desiredCenterX - PLAYER_WIDTH / 2);
+    s.playerSteerYTarget = clampPlayerSteerY(
+      SCREEN_HEIGHT -
+        desiredCenterY -
+        PLAYER_HEIGHT / 2 -
+        GROUND_HEIGHT -
+        jump,
+      jump,
     );
   }, []);
 
-  const onResponderRelease = useCallback(() => {
+  const onResponderEnd = useCallback(() => {
+    if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
+    const s = sim.current;
+    s.playerXTarget = s.playerX;
+    s.playerSteerYTarget = s.playerSteerY;
     lastDragEndMsRef.current = Date.now();
-    sim.current.holdFreeze = false;
     lastFingerXRef.current = null;
+    lastFingerYRef.current = null;
   }, []);
 
   const onGameRootLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
     if (width <= 0 || height <= 0) return;
+    gameLayoutRef.current = { w: width, h: height };
+    // Layout changed; drop cached window geometry (will be re-measured on next drag start).
+    containerWinRef.current = null;
     setGameLayout((prev) =>
       prev?.w === width && prev?.h === height ? prev : { w: width, h: height },
     );
   }, []);
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <GameplayReducedMotion />
-      <TouchableWithoutFeedback onPress={handleJump}>
-        <View style={styles.gameRoot} onLayout={onGameRootLayout}>
-          <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
-            <AnimatedDayCycleBackground
-              style={styles.dayCycleBg}
-              staticSingleLayer
-              parallaxEnabled={false}
-              readabilityVignetteEnabled={false}
-              visualQualityTier={visualTier}
-              phaseRotation={bgPhase}
-              runSessionKey={runSessionKey}
-              artWidth={gameLayout?.w}
-              artHeight={gameLayout?.h}
-            />
-          </View>
-          <View
-            style={styles.container}
-            onStartShouldSetResponder={() => true}
-            onResponderGrant={onResponderGrant}
-            onResponderMove={onResponderMove}
-            onResponderRelease={onResponderRelease}
-          >
+    <View style={styles.gameScreenWrapper}>
+      <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+        <FuturisticGameplayBackground width={windowW} height={windowH} />
+      </View>
+      <View style={styles.safe}>
+        <GameplayReducedMotion />
+        <View style={styles.gameTouchHost}>
+          <TouchableWithoutFeedback onPress={handleJump}>
+            <View style={styles.gameRoot} onLayout={onGameRootLayout}>
+            <View
+              ref={(r) => {
+                containerRef.current = r;
+              }}
+              style={styles.container}
+              onStartShouldSetResponder={onStartShouldSetHeroResponder}
+              onResponderTerminationRequest={() => false}
+              onResponderGrant={onResponderGrant}
+              onResponderMove={onResponderMove}
+              onResponderRelease={onResponderEnd}
+              onResponderTerminate={onResponderEnd}
+            >
+            <AmbientParticles density={visualTier >= 2 ? "low" : "medium"} />
+            <GameplayLaneGuide screenW={SCREEN_WIDTH} screenH={SCREEN_HEIGHT} groundH={GROUND_HEIGHT} />
+            <PowerActionButton disabled label="Power" />
             {worldFx.dangerVisual === "warn" && visualTier < 3 && (
               <View
                 pointerEvents="none"
@@ -2017,96 +2174,16 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
                 </View>
               </View>
             )}
-            {/* Lane art sits behind ship and falling entities — was last child and covered the bottom of the screen. */}
-            <SkyLane height={GROUND_HEIGHT} />
+            {/* Removed bottom deck panel — keep background as one piece. */}
             <HeroGameAnchor
               key={`hero-${runSessionKey}`}
               width={PLAYER_WIDTH}
               height={PLAYER_HEIGHT}
-              steerSV={heroSteerSV}
               leftSV={heroLeftSV}
               bottomSV={heroBottomSV}
               qualityTier={Math.max(2, visualTier) as VisualQualityTier}
               skinImage={heroImageForSkinId(sim.current.currentSkin)}
-            >
-              {(heroAuraMask & 1) !== 0 && (
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: "absolute",
-                    left: -8,
-                    bottom: -8,
-                    width: PLAYER_WIDTH + 16,
-                    height: PLAYER_HEIGHT + 16,
-                    borderRadius: 999,
-                    backgroundColor: "rgba(96,165,250,0.25)",
-                    borderWidth: 2,
-                    borderColor: "rgba(96,165,250,0.9)",
-                  }}
-                />
-              )}
-              {(heroAuraMask & 2) !== 0 && (
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: "absolute",
-                    left: -6,
-                    bottom: -6,
-                    width: PLAYER_WIDTH + 12,
-                    height: PLAYER_HEIGHT + 12,
-                    borderRadius: 999,
-                    borderWidth: 2,
-                    borderColor: "rgba(245,158,11,0.9)",
-                  }}
-                />
-              )}
-              {(heroAuraMask & 4) !== 0 && (
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: "absolute",
-                    left: -10,
-                    bottom: -10,
-                    width: PLAYER_WIDTH + 20,
-                    height: PLAYER_HEIGHT + 20,
-                    borderRadius: 999,
-                    borderWidth: 2,
-                    borderColor: "rgba(34,197,94,0.9)",
-                  }}
-                />
-              )}
-              {(heroAuraMask & 8) !== 0 && (
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: "absolute",
-                    left: -4,
-                    bottom: -14,
-                    width: PLAYER_WIDTH + 8,
-                    height: PLAYER_HEIGHT + 28,
-                    borderRadius: 12,
-                    borderWidth: 2,
-                    borderColor: "rgba(167,139,250,0.9)",
-                  }}
-                />
-              )}
-              {(heroAuraMask & 16) !== 0 && (
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: "absolute",
-                    left: -10,
-                    bottom: -10,
-                    width: PLAYER_WIDTH + 20,
-                    height: PLAYER_HEIGHT + 20,
-                    borderRadius: 999,
-                    borderWidth: 2,
-                    borderColor: "rgba(165,180,252,0.95)",
-                    backgroundColor: "rgba(129,140,248,0.12)",
-                  }}
-                />
-              )}
-            </HeroGameAnchor>
+            />
             <ShopModal
               open={sim.current.shopOpen}
               coins={sim.current.coinsCollected}
@@ -2128,22 +2205,28 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
               controlButtonStyle={styles.controlButton}
               controlTextStyle={styles.controlText}
             />
-            <WorldEntityLayer
-              key={`world-${runSessionKey}`}
-              obstacleSpecs={obsRenderSpecs}
-              coinSpecs={coinRenderSpecs}
-              powerSpecs={powerRenderSpecs}
-              obsPositions={obsPositionsSV}
-              coinPositions={coinPositionsSV}
-              powerPositions={powerPositionsSV}
-            />
+            <View
+              style={StyleSheet.absoluteFillObject}
+              pointerEvents="none"
+              collapsable={false}
+            >
+              <WorldEntityLayer
+                key={`world-${runSessionKey}`}
+                obstacleSpecs={obsRenderSpecs}
+                coinSpecs={coinRenderSpecs}
+                powerSpecs={powerRenderSpecs}
+                obsPositions={obsPositionsSV}
+                coinPositions={coinPositionsSV}
+                powerPositions={powerPositionsSV}
+              />
+            </View>
 
             {HITBOX_OVERLAY_ENABLED ? (
               <HitboxDebugOverlay
                 screenHeight={SCREEN_HEIGHT}
                 groundHeight={GROUND_HEIGHT}
                 playerX={sim.current.playerX}
-                playerY={sim.current.playerY}
+                playerY={playerWorldYOffset(sim.current)}
                 playerWidth={PLAYER_WIDTH}
                 playerHeight={PLAYER_HEIGHT}
                 obstacles={sim.current.obstacles}
@@ -2163,114 +2246,56 @@ function GameScreen({ onExitToHome }: GameScreenProps) {
               token={sim.current.pickupFlashToken}
             />
 
-            {gameOver && (
-              <View style={styles.overlay} pointerEvents="auto">
-                <View style={styles.card}>
-                  <Text style={styles.gameOverTitle}>Game Over</Text>
-                  <Text style={styles.gameOverTotalLabel}>Total score</Text>
-                  <Text style={styles.finalScore}>
-                    {sim.current.score.toLocaleString()}
-                  </Text>
-                  <View style={styles.gameOverStats}>
-                    <View style={styles.gameOverStatRow}>
-                      <Text style={styles.gameOverStatLabel}>Distance</Text>
-                      <Text style={styles.gameOverStatValue}>
-                        {Math.floor(sim.current.runDistance).toLocaleString()} m
-                      </Text>
-                    </View>
-                    <View style={styles.gameOverStatRow}>
-                      <Text style={styles.gameOverStatLabel}>
-                        Coins collected
-                      </Text>
-                      <Text style={styles.gameOverStatValue}>
-                        {sim.current.coinsCollected.toLocaleString()}
-                      </Text>
-                    </View>
-                    <View style={styles.gameOverStatRow}>
-                      <Text style={styles.gameOverStatLabel}>Bonus points</Text>
-                      <Text style={styles.gameOverStatValue}>
-                        +{sim.current.pickupScore.toLocaleString()}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.gameOverActionCol}>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.gameOverReviveButton,
-                        {
-                          opacity:
-                            reviveVideoBusy || pressed ? 0.82 : 1,
-                        },
-                      ]}
-                      onPress={handleReviveVideo}
-                      disabled={reviveVideoBusy}
-                    >
-                      <View style={styles.gameOverReviveIconWrap}>
-                        {reviveVideoBusy ? (
-                          <ActivityIndicator color="#e0f2fe" size="small" />
-                        ) : (
-                          <Text style={styles.gameOverReviveIcon}>▶</Text>
-                        )}
-                      </View>
-                      <View style={styles.gameOverReviveTextCol}>
-                        <Text style={styles.gameOverReviveTitle}>
-                          Watch video — continue
-                        </Text>
-                        <Text style={styles.gameOverReviveSub}>
-                          Same run, same score & position
-                        </Text>
-                      </View>
-                    </Pressable>
-                    <View style={styles.gameOverActions}>
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.gameOverButton,
-                          styles.gameOverButtonPrimary,
-                          { opacity: pressed ? 0.9 : 1 },
-                        ]}
-                        onPress={() => {
-                          getAudioManager().playButtonTap();
-                          handleRetry();
-                        }}
-                      >
-                        <Text style={styles.gameOverButtonTextPrimary}>
-                          Retry
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.gameOverButton,
-                          styles.gameOverButtonSecondary,
-                          { opacity: pressed ? 0.88 : 1 },
-                        ]}
-                        onPress={() => {
-                          getAudioManager().playButtonTap();
-                          handleExitToHome();
-                        }}
-                      >
-                        <Text style={styles.gameOverButtonTextSecondary}>
-                          Home
-                        </Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                </View>
-              </View>
-            )}
+            <PauseRibbon
+              visible={runPaused && !gameOver && !sim.current.shopOpen}
+            />
+
+            {gameOver ? (
+              <GameOverOverlay
+                score={sim.current.score}
+                runDistance={sim.current.runDistance}
+                coinsCollected={sim.current.coinsCollected}
+                pickupScore={sim.current.pickupScore}
+                reviveVideoBusy={reviveVideoBusy}
+                onReviveVideo={handleReviveVideo}
+                onRetry={() => {
+                  getAudioManager().playButtonTap();
+                  handleRetry();
+                }}
+                onExitToHome={() => {
+                  getAudioManager().playButtonTap();
+                  handleExitToHome();
+                }}
+              />
+            ) : null}
           </View>
           {DEBUG_PERF_OVERLAY ? (
             <View pointerEvents="none" style={styles.fpsDebugWrap}>
               <FpsPerfOverlay visible stats={perfStats} />
             </View>
           ) : null}
+          </View>
+          </TouchableWithoutFeedback>
         </View>
-      </TouchableWithoutFeedback>
-    </SafeAreaView>
+        {showBannerAds ? (
+          <View
+            style={[
+              styles.gameAdDock,
+              { minHeight: gameAdReserve, paddingBottom: insets.bottom },
+            ]}
+          >
+            <View style={styles.gameAdHairline} />
+            <HomeScreenBanner />
+          </View>
+        ) : null}
+      </View>
+    </View>
   );
 }
 
 export default function App() {
   const [showHome, setShowHome] = useState(true);
+  const [splashDismissed, setSplashDismissed] = useState(false);
   const [homeShopOpen, setHomeShopOpen] = useState(false);
   const [homeShopCoins, setHomeShopCoins] = useState(0);
   const [homeOwnedSkins, setHomeOwnedSkins] = useState<string[]>(["classic"]);
@@ -2452,56 +2477,101 @@ export default function App() {
 
   return (
     <SafeAreaProvider style={{ flex: 1, backgroundColor: "transparent" }}>
-      <AdsRoot isHome={showHome} />
+      <ReducedMotionConfig mode={ReduceMotion.Never} />
+      <AdsRoot isHome={showHome} canPresentAppOpen={!showHome || splashDismissed} />
       <AppStatusBar />
-      {showHome ? (
-        <>
-          <HomeScreen
-            coins={homeShopCoins}
-            onPlay={() => {
-              getAudioManager().playButtonTap();
-              showPlayInterstitialThen(() => setShowHome(false));
-            }}
-            onOpenShop={openHomeShop}
-          />
-          <ShopModal
-            open={homeShopOpen}
-            coins={homeShopCoins}
-            ownedSkins={homeOwnedSkins}
-            currentSkin={homeCurrentSkin}
-            skins={SHOP_SKIN_ROWS}
-            bestSingleRunDistanceM={homeBestRunStats.distanceM}
-            bestSingleRunCoins={homeBestRunStats.runCoins}
-            onClose={closeHomeShop}
-            onBuyOrEquip={handleHomeBuyOrEquip}
-            onWatchVideoForCoins={handleHomeWatchVideo}
-            videoRewardBusy={homeVideoBusy}
-            controlButtonStyle={styles.controlButton}
-            controlTextStyle={styles.controlText}
-          />
-        </>
-      ) : (
-        <GameScreen onExitToHome={() => setShowHome(true)} />
-      )}
+      <View style={styles.routeHost}>
+        {showHome ? (
+          <Animated.View
+            key="route-home"
+            style={styles.routeLayer}
+            entering={routeEnterHome}
+            exiting={routeExitHome}
+          >
+            <HomeScreen
+              coins={homeShopCoins}
+              showBannerAds
+              onPlay={() => {
+                getAudioManager().playButtonTap();
+                setShowHome(false);
+              }}
+              onOpenShop={openHomeShop}
+            />
+            {!splashDismissed ? (
+              <GameSplashScreen onComplete={() => setSplashDismissed(true)} />
+            ) : null}
+            <ShopModal
+              open={homeShopOpen}
+              coins={homeShopCoins}
+              ownedSkins={homeOwnedSkins}
+              currentSkin={homeCurrentSkin}
+              skins={SHOP_SKIN_ROWS}
+              bestSingleRunDistanceM={homeBestRunStats.distanceM}
+              bestSingleRunCoins={homeBestRunStats.runCoins}
+              onClose={closeHomeShop}
+              onBuyOrEquip={handleHomeBuyOrEquip}
+              onWatchVideoForCoins={handleHomeWatchVideo}
+              videoRewardBusy={homeVideoBusy}
+              controlButtonStyle={styles.controlButton}
+              controlTextStyle={styles.controlText}
+            />
+          </Animated.View>
+        ) : (
+          <Animated.View
+            key="route-game"
+            style={styles.routeLayer}
+            entering={routeEnterGame}
+            exiting={routeExitGame}
+          >
+            <GameScreen
+              showBannerAds={splashDismissed}
+              onExitToHome={() => setShowHome(true)}
+            />
+          </Animated.View>
+        )}
+      </View>
     </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
+  routeHost: {
+    flex: 1,
+  },
+  routeLayer: {
+    flex: 1,
+  },
+  gameScreenWrapper: {
+    flex: 1,
+    backgroundColor: "#040816",
+  },
   safe: {
     flex: 1,
     backgroundColor: "transparent",
   },
+  gameTouchHost: {
+    flex: 1,
+    minHeight: 0,
+  },
   gameRoot: {
     flex: 1,
+  },
+  gameAdDock: {
+    alignSelf: "stretch",
+    justifyContent: "flex-end",
+    backgroundColor: "transparent",
+    zIndex: 4,
+  },
+  gameAdHairline: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "rgba(56,189,248,0.2)",
+    marginHorizontal: scale(24),
+    marginBottom: heightPixel(4),
   },
   fpsDebugWrap: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 100,
     pointerEvents: "none",
-  },
-  dayCycleBg: {
-    flex: 1,
   },
   container: {
     flex: 1,
@@ -2528,24 +2598,34 @@ const styles = StyleSheet.create({
     zIndex: 25,
   },
   zoneBanner: {
-    paddingHorizontal: scale(20),
-    paddingVertical: heightPixel(10),
+    paddingHorizontal: scale(22),
+    paddingVertical: heightPixel(12),
     borderRadius: scale(14),
-    backgroundColor: "rgba(15,23,42,0.88)",
+    backgroundColor: "rgba(15,23,42,0.55)",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(56,189,248,0.55)",
+    borderColor: "rgba(56,189,248,0.42)",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.35,
+        shadowRadius: 12,
+      },
+      default: { elevation: 8 },
+    }),
   },
   zoneBannerTitle: {
-    fontSize: fontPixel(20),
+    fontSize: fontPixel(19),
     fontWeight: "800",
     color: "#e0f2fe",
     textAlign: "center",
+    letterSpacing: 0.3,
   },
   zoneBannerSub: {
-    marginTop: 4,
+    marginTop: heightPixel(5),
     fontSize: fontPixel(12),
     fontWeight: "600",
-    color: "rgba(148,163,184,0.95)",
+    color: "rgba(186,200,220,0.92)",
     textAlign: "center",
   },
   skyTop: {
@@ -2727,169 +2807,28 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: scale(8),
     borderTopRightRadius: scale(8),
   },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(6,10,20,0.55)",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: scale(24),
-  },
-  card: {
-    width: "100%",
-    maxWidth: scale(340),
-    paddingVertical: heightPixel(28),
-    paddingHorizontal: scale(24),
-    borderRadius: scale(16),
-    backgroundColor: "rgba(18,26,42,0.92)",
-    borderWidth: scale(1),
-    borderColor: "rgba(255,255,255,0.08)",
-    alignItems: "center",
-  },
-  gameOverTitle: {
-    fontSize: fontPixel(14),
-    letterSpacing: scale(4),
-    color: "rgba(255,255,255,0.55)",
-    marginBottom: heightPixel(8),
-    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
-  },
-  gameOverTotalLabel: {
-    fontSize: fontPixel(11),
-    letterSpacing: scale(2),
-    color: "rgba(255,255,255,0.45)",
-    marginBottom: heightPixel(4),
-    textTransform: "uppercase",
-    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
-  },
-  finalScore: {
-    fontSize: fontPixel(40),
-    fontWeight: "300",
-    color: "#f4f7ff",
-    marginBottom: heightPixel(18),
-    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
-  },
-  gameOverStats: {
-    width: "100%",
-    maxWidth: scale(280),
-    marginBottom: heightPixel(22),
-    paddingTop: heightPixel(14),
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(255,255,255,0.12)",
-  },
-  gameOverStatRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: heightPixel(6),
-  },
-  gameOverStatLabel: {
-    fontSize: fontPixel(14),
-    color: "rgba(255,255,255,0.55)",
-    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
-  },
-  gameOverStatValue: {
-    fontSize: fontPixel(15),
-    fontWeight: "600",
-    color: "rgba(255,255,255,0.92)",
-    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
-  },
-  gameOverActionCol: {
-    width: "100%",
-    marginTop: heightPixel(6),
-    gap: heightPixel(12),
-  },
-  gameOverReviveButton: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(12),
-    paddingVertical: heightPixel(14),
-    paddingHorizontal: scale(14),
-    borderRadius: scale(14),
-    backgroundColor: "rgba(56,189,248,0.22)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(56,189,248,0.55)",
-  },
-  gameOverReviveIconWrap: {
-    width: scale(32),
-    height: scale(32),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  gameOverReviveIcon: {
-    fontSize: fontPixel(20),
-    color: "#7dd3fc",
-    textAlign: "center",
-  },
-  gameOverReviveTextCol: {
-    flex: 1,
-  },
-  gameOverReviveTitle: {
-    color: "#f0f9ff",
-    fontWeight: "800",
-    fontSize: fontPixel(15),
-    letterSpacing: 0.3,
-  },
-  gameOverReviveSub: {
-    marginTop: heightPixel(3),
-    color: "rgba(224,242,254,0.78)",
-    fontSize: fontPixel(12),
-    fontWeight: "600",
-  },
-  gameOverActions: {
-    flexDirection: "row",
-    width: "100%",
-    justifyContent: "center",
-    gap: scale(12),
-  },
-  gameOverButton: {
-    flex: 1,
-    maxWidth: scale(148),
-    paddingVertical: heightPixel(14),
-    paddingHorizontal: scale(16),
-    borderRadius: scale(12),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  gameOverButtonPrimary: {
-    backgroundColor: "#22c55e",
-  },
-  gameOverButtonSecondary: {
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
-  },
-  gameOverButtonTextPrimary: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: fontPixel(15),
-    letterSpacing: 0.5,
-  },
-  gameOverButtonTextSecondary: {
-    color: "rgba(255,255,255,0.9)",
-    fontWeight: "700",
-    fontSize: fontPixel(15),
-    letterSpacing: 0.5,
-  },
   tapHint: {
     fontSize: fontPixel(14),
     color: "rgba(255,255,255,0.5)",
   },
   controlButton: {
     paddingHorizontal: moderateScale(14),
-    paddingVertical: moderateScale(8),
-    borderRadius: moderateScale(12),
+    paddingVertical: moderateScale(9),
+    borderRadius: moderateScale(14),
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: scale(3) },
-    shadowOpacity: 0.25,
-    shadowRadius: scale(4),
-    elevation: 3,
+    shadowOffset: { width: 0, height: scale(4) },
+    shadowOpacity: 0.28,
+    shadowRadius: scale(6),
+    elevation: 4,
     marginLeft: moderateScale(10),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.12)",
   },
   controlText: {
     color: "#fff",
-    fontWeight: "700",
-    fontSize: fontPixel(14),
-    letterSpacing: 0.5,
+    fontWeight: "800",
+    fontSize: fontPixel(13),
+    letterSpacing: 0.45,
   },
   customizeBtn: {
     position: "absolute",

@@ -20,30 +20,41 @@ export type PowerPickupFlashProps = {
 };
 
 /**
- * Brief pickup acknowledgment — opacity only (no scale/back easing work).
+ * Brief pickup acknowledgment — soft pop + fade (lightweight, single shared transform).
  */
 export default function PowerPickupFlash({ kind, token }: PowerPickupFlashProps) {
   const opacity = useSharedValue(0);
 
+  const pop = useSharedValue(1);
+
   useEffect(() => {
     if (!kind || token <= 0) {
       cancelAnimation(opacity);
+      cancelAnimation(pop);
       opacity.value = 0;
+      pop.value = 1;
       return;
     }
     cancelAnimation(opacity);
+    cancelAnimation(pop);
     opacity.value = 0;
+    pop.value = withSequence(
+      withTiming(1.06, { duration: 90, easing: Easing.out(Easing.quad) }),
+      withTiming(1, { duration: 260, easing: Easing.out(Easing.cubic) }),
+    );
     opacity.value = withSequence(
       withTiming(1, { duration: 70, easing: Easing.out(Easing.quad) }),
       withTiming(0, { duration: 320, easing: Easing.in(Easing.quad) }),
     );
     return () => {
       cancelAnimation(opacity);
+      cancelAnimation(pop);
     };
-  }, [kind, token, opacity]);
+  }, [kind, token, opacity, pop]);
 
   const aStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
+    transform: [{ scale: pop.value }],
   }));
 
   if (!kind) return null;

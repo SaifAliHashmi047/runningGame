@@ -22,6 +22,8 @@ import {
   SHOP_REWARDED_COIN_GRANT,
   SHOP_VIDEO_MAX_PER_WINDOW,
 } from "../src/ads/shopRewardedCoins";
+import LinearGradient from "react-native-linear-gradient";
+import { colors, fontUi, overlay, radius, shadow } from "../src/ui/home/theme";
 
 type Props = {
   open: boolean;
@@ -99,7 +101,15 @@ export default function ShopModal({
           <View style={styles.modalBackdrop} />
         </TouchableWithoutFeedback>
         <View style={styles.modalCenter}>
-          <View style={styles.modalCard}>
+          <View style={styles.modalCardShell}>
+            <LinearGradient
+              colors={["rgba(0,229,255,0.5)", "rgba(0,229,255,0.12)", "transparent"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.modalAccent}
+              pointerEvents="none"
+            />
+            <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Ship skins</Text>
             <Text style={styles.modalSubTitle}>Coins {formatWithSpaces(coins)}</Text>
 
@@ -119,7 +129,7 @@ export default function ShopModal({
                 disabled={videoRowDisabled}
               >
                 {videoRewardBusy ? (
-                  <ActivityIndicator color="#e0f2fe" size="small" />
+                  <ActivityIndicator color={colors.ice} size="small" />
                 ) : (
                   <Text style={styles.videoRewardIcon}>▶</Text>
                 )}
@@ -249,16 +259,18 @@ export default function ShopModal({
 
             <Pressable
               style={({ pressed }) => [
+                styles.closeBtn,
                 controlButtonStyle,
-                { backgroundColor: "#6c5ce7", marginTop: heightPixel(14), opacity: pressed ? 0.88 : 1 },
+                { marginTop: heightPixel(14), opacity: pressed ? 0.88 : 1 },
               ]}
               onPress={() => {
                 getAudioManager().playButtonTap();
                 onClose();
               }}
             >
-              <Text style={controlTextStyle}>Close</Text>
+              <Text style={[controlTextStyle, styles.closeBtnText]}>Close</Text>
             </Pressable>
+            </View>
           </View>
         </View>
       </View>
@@ -333,7 +345,7 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: overlay.modalScrim,
   },
   modalCenter: {
     flex: 1,
@@ -341,33 +353,52 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: scale(20),
   },
-  modalCard: {
+  modalCardShell: {
     width: "100%",
     maxWidth: scale(420),
-    borderRadius: scale(18),
-    backgroundColor: "rgba(18,26,42,0.98)",
-    paddingVertical: heightPixel(18),
+    borderRadius: scale(radius.lg + 2),
+    overflow: "hidden",
+    ...shadow.heavy,
+  },
+  modalAccent: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    height: heightPixel(4),
+    zIndex: 2,
+  },
+  modalCard: {
+    width: "100%",
+    paddingVertical: heightPixel(20),
     paddingHorizontal: scale(16),
-    borderWidth: scale(1),
-    borderColor: "rgba(255,255,255,0.08)",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: scale(10) },
-    shadowOpacity: 0.35,
-    shadowRadius: scale(24),
-    elevation: 10,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderSubtle,
   },
   modalTitle: {
     fontSize: fontPixel(18),
-    color: "#fff",
+    color: colors.textPrimary,
     fontWeight: "800",
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
     textAlign: "center",
+    fontFamily: fontUi.mono,
   },
   modalSubTitle: {
     marginTop: heightPixel(4),
     fontSize: fontPixel(13),
-    color: "rgba(255,255,255,0.7)",
+    color: colors.textSecondary,
     textAlign: "center",
+    fontFamily: fontUi.mono,
+  },
+  closeBtn: {
+    backgroundColor: "rgba(167,139,250,0.22)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(167,139,250,0.45)",
+  },
+  closeBtnText: {
+    letterSpacing: 0.5,
+    fontFamily: fontUi.mono,
   },
   videoRewardRow: {
     flexDirection: "row",
@@ -375,15 +406,15 @@ const styles = StyleSheet.create({
     marginTop: heightPixel(14),
     paddingVertical: heightPixel(12),
     paddingHorizontal: scale(12),
-    borderRadius: scale(12),
-    backgroundColor: "rgba(56,189,248,0.18)",
+    borderRadius: scale(radius.md),
+    backgroundColor: "rgba(56,189,248,0.12)",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(56,189,248,0.45)",
+    borderColor: colors.borderGlow,
     gap: scale(12),
   },
   videoRewardIcon: {
     fontSize: fontPixel(20),
-    color: "#7dd3fc",
+    color: colors.sky,
     width: scale(28),
     textAlign: "center",
   },
@@ -391,9 +422,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   videoRewardTitle: {
-    color: "#f0f9ff",
+    color: colors.ice,
     fontWeight: "800",
     fontSize: fontPixel(15),
+    fontFamily: fontUi.mono,
   },
   videoRewardSub: {
     marginTop: 2,
@@ -403,16 +435,17 @@ const styles = StyleSheet.create({
   },
   videoRewardHint: {
     marginTop: 3,
-    color: "rgba(224,242,254,0.55)",
+    color: colors.textTertiary,
     fontSize: fontPixel(11),
     fontWeight: "600",
   },
   videoRewardCooldown: {
     marginTop: 4,
-    color: "rgba(251,191,36,0.95)",
+    color: colors.gold,
     fontSize: fontPixel(14),
     fontWeight: "800",
     fontVariant: ["tabular-nums"],
+    fontFamily: fontUi.mono,
   },
   skinListScroll: {
     width: "100%",
@@ -426,11 +459,13 @@ const styles = StyleSheet.create({
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: colors.surfaceRow,
     paddingVertical: heightPixel(10),
     paddingHorizontal: scale(8),
     paddingRight: scale(6),
-    borderRadius: scale(10),
+    borderRadius: scale(radius.sm + 2),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderSubtle,
     gap: scale(6),
   },
   rowActionBtn: {
@@ -463,17 +498,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: scale(4),
   },
   skinName: {
-    color: "#fff",
+    color: colors.textPrimary,
     fontWeight: "700",
     fontSize: fontPixel(15),
+    fontFamily: fontUi.mono,
   },
   skinPrice: {
-    color: "rgba(255,255,255,0.65)",
+    color: colors.textSecondary,
     fontSize: fontPixel(13),
     marginTop: 2,
   },
   skinOwned: {
-    color: "rgba(255,255,255,0.45)",
+    color: colors.textTertiary,
     fontSize: fontPixel(12),
     marginTop: 2,
   },
@@ -482,13 +518,15 @@ const styles = StyleSheet.create({
     fontSize: fontPixel(10),
     fontWeight: "800",
     letterSpacing: 1,
-    color: "rgba(56,189,248,0.95)",
+    color: colors.accent,
+    fontFamily: fontUi.mono,
   },
   skinMileProg: {
     marginTop: 3,
     fontSize: fontPixel(12),
     fontWeight: "700",
-    color: "rgba(251,191,36,0.95)",
+    color: colors.gold,
     fontVariant: ["tabular-nums"],
+    fontFamily: fontUi.mono,
   },
 });

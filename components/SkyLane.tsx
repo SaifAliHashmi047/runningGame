@@ -5,86 +5,53 @@ import { heightPixel, scale } from "../utils/responsive";
 
 type Props = {
   height: number;
-  /** Score zone — shifts void + neon accents when provided. */
-  voidColors?: readonly [string, string, string];
-  spineColors?: readonly [string, string, string, string];
 };
 
-const DEFAULT_VOID: readonly [string, string, string] = ["#070b14", "#0f1729", "#0c111c"];
-const DEFAULT_SPINE: readonly [string, string, string, string] = [
-  "transparent",
-  "rgba(34,211,238,0.55)",
-  "rgba(139,92,246,0.45)",
-  "transparent",
-];
+const DECK_TOP = ["rgba(8,14,32,0.96)", "rgba(15,23,42,0.94)", "rgba(12,18,38,0.98)"] as const;
 
 /**
- * Futuristic energy lane (no water): graded deck, neon spine, side rails, faint depth grid.
+ * Futuristic deck — matches glass HUD; no vertical grid or heavy spine beams.
  */
-export default function SkyLane({ height, voidColors = DEFAULT_VOID, spineColors = DEFAULT_SPINE }: Props) {
+export default function SkyLane({ height }: Props) {
   return (
     <View style={[styles.root, { height }]} pointerEvents="none">
+      <LinearGradient colors={[...DECK_TOP]} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={StyleSheet.absoluteFill} />
+
+      {/* Top edge — energy seam into sky */}
       <LinearGradient
-        colors={[...voidColors]}
+        colors={["rgba(0,229,255,0.12)", "rgba(99,102,241,0.06)", "transparent"]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
-        style={StyleSheet.absoluteFill}
+        style={styles.topSeam}
       />
 
-      {/* Horizon strip */}
-      <View style={styles.horizonGlow} />
       <LinearGradient
-        colors={["transparent", "rgba(34,211,238,0.08)", "transparent"]}
+        colors={["transparent", "rgba(56,189,248,0.10)", "transparent"]}
         start={{ x: 0, y: 0.5 }}
         end={{ x: 1, y: 0.5 }}
         style={styles.horizonLine}
       />
 
-      {/* Depth grid */}
-      <View style={styles.gridLayer}>
-        {Array.from({ length: 7 }).map((_, i) => (
-          <View
-            key={`v-${i}`}
-            style={[
-              styles.gridV,
-              {
-                left: `${12 + i * 13}%`,
-                opacity: 0.06 + (i % 2) * 0.04,
-              },
-            ]}
-          />
-        ))}
-      </View>
-
-      {/* Lane deck */}
+      {/* Subtle forward motion hint — horizontal bands only */}
       <LinearGradient
-        colors={["rgba(15,23,42,0.94)", "rgba(30,41,59,0.98)", "rgba(15,23,42,0.96)"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.deck}
+        colors={["transparent", "rgba(0,229,255,0.04)", "transparent"]}
+        start={{ x: 0, y: 0.5 }}
+        end={{ x: 1, y: 0.5 }}
+        style={[styles.band, { bottom: height * 0.38, opacity: 0.9 }]}
+      />
+      <LinearGradient
+        colors={["transparent", "rgba(167,139,250,0.035)", "transparent"]}
+        start={{ x: 0, y: 0.5 }}
+        end={{ x: 1, y: 0.5 }}
+        style={[styles.band, { bottom: height * 0.22 }]}
       />
 
-      {/* Neon spine */}
+      {/* Faint center pulse on deck — very low contrast */}
       <LinearGradient
-        colors={[...spineColors]}
+        colors={["transparent", "rgba(125,211,252,0.06)", "transparent"]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
-        style={styles.spine}
-      />
-      <View style={styles.spineCore} />
-
-      {/* Side rails */}
-      <LinearGradient
-        colors={["rgba(56,189,248,0.35)", "transparent"]}
-        start={{ x: 0, y: 0.5 }}
-        end={{ x: 1, y: 0.5 }}
-        style={styles.railLeft}
-      />
-      <LinearGradient
-        colors={["transparent", "rgba(167,139,250,0.3)"]}
-        start={{ x: 0, y: 0.5 }}
-        end={{ x: 1, y: 0.5 }}
-        style={styles.railRight}
+        style={styles.deckCenterGlow}
       />
     </View>
   );
@@ -98,69 +65,36 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     overflow: "hidden",
-    borderTopWidth: scale(1),
-    borderTopColor: "rgba(56,189,248,0.22)",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(56,189,248,0.28)",
   },
-  horizonGlow: {
+  topSeam: {
     position: "absolute",
-    top: -heightPixel(32),
+    top: -heightPixel(20),
     left: 0,
     right: 0,
-    height: heightPixel(48),
-    backgroundColor: "rgba(59,130,246,0.07)",
+    height: heightPixel(28),
   },
   horizonLine: {
     position: "absolute",
-    top: -scale(2),
+    top: -scale(1),
+    left: "12%",
+    right: "12%",
+    height: StyleSheet.hairlineWidth,
+  },
+  band: {
+    position: "absolute",
     left: "8%",
     right: "8%",
-    height: scale(3),
+    height: heightPixel(2),
     borderRadius: scale(2),
   },
-  gridLayer: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  gridV: {
+  deckCenterGlow: {
     position: "absolute",
-    top: "10%",
-    bottom: 0,
-    width: scale(1),
-    backgroundColor: "#7dd3fc",
-  },
-  deck: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.88,
-  },
-  spine: {
-    position: "absolute",
-    left: "50%",
-    marginLeft: -scale(12),
-    width: scale(24),
-    top: "18%",
-    bottom: 0,
-    borderRadius: scale(12),
-  },
-  spineCore: {
-    position: "absolute",
-    left: "50%",
-    marginLeft: -scale(1),
-    width: scale(2),
-    top: "22%",
-    bottom: scale(6),
-    backgroundColor: "rgba(125,211,252,0.5)",
-  },
-  railLeft: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: scale(14),
-  },
-  railRight: {
-    position: "absolute",
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: scale(14),
+    left: "32%",
+    right: "32%",
+    top: "12%",
+    bottom: "18%",
+    borderRadius: scale(16),
   },
 });

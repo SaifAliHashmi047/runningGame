@@ -1,21 +1,13 @@
-import { Dimensions, PixelRatio } from "react-native";
-
-/** Baseline design width — keep in sync with `utils/responsive.ts`. */
-export const BASE_WIDTH = 375;
-/** Baseline design height — keep in sync with `utils/responsive.ts`. */
-export const BASE_HEIGHT = 1050;
-
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
-
-/** Width-based scale (game + UI). Safe to use from plain TS modules (no cycles). */
-export function widthDesignScale(size: number): number {
-  return PixelRatio.roundToNearestPixel((SCREEN_WIDTH / BASE_WIDTH) * size);
-}
-
-/** Height-based scale. */
-export function heightDesignScale(size: number): number {
-  return PixelRatio.roundToNearestPixel((SCREEN_HEIGHT / BASE_HEIGHT) * size);
-}
-
-export const initialWindowWidth = SCREEN_WIDTH;
-export const initialWindowHeight = SCREEN_HEIGHT;
+/**
+ * Shared layout metrics — implemented in `responsive.ts` to avoid drift.
+ * `widthDesignScale` / `heightDesignScale` use **screen** size vs 375×812 (same as `widthPixel` / `heightPixel`).
+ */
+export {
+  BASE_WIDTH,
+  BASE_HEIGHT,
+  waterGlassSize,
+  initialWindowWidth,
+  initialWindowHeight,
+  widthPixel as widthDesignScale,
+  heightPixel as heightDesignScale,
+} from "./responsive";

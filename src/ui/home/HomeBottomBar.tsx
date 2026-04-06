@@ -1,7 +1,7 @@
 import React, { memo } from "react";
-import { StyleSheet, Text, View, Pressable, Platform } from "react-native";
+import { StyleSheet, Text, View, Pressable } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
-import { colors, radius } from "./theme";
+import { colors, fontUi, radius } from "./theme";
 import { useResponsive } from "./useResponsive";
 import { scale } from "../../../utils/responsive";
 import { HOME_SPRING_PRESS } from "./homeMotion";
@@ -73,9 +73,9 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.32)",
-    borderTopWidth: scale(1),
-    borderTopColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(4,8,18,0.78)",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(56,189,248,0.22)",
   },
   item: {
     alignItems: "center",
@@ -88,6 +88,6 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontWeight: "800",
     letterSpacing: 1.2,
-    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
+    fontFamily: fontUi.mono,
   },
 });

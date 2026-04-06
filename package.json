@@ -4,8 +4,13 @@
   "private": true,
   "scripts": {
     "android": "react-native run-android",
+    "android:build:debug": "react-native build-android --mode debug",
+    "android:build:release": "react-native build-android --mode release",
     "ios": "react-native run-ios",
+    "ios:build:debug": "react-native build-ios --mode Debug",
+    "ios:build:release": "react-native build-ios --mode Release",
     "lint": "eslint .",
+    "postinstall": "patch-package",
     "start": "react-native start",
     "test": "jest",
     "gen-audio": "node scripts/gen-game-audio-wavs.mjs"
@@ -39,6 +44,7 @@
     "@types/react-test-renderer": "^19.1.0",
     "eslint": "^8.19.0",
     "jest": "^29.6.3",
+    "patch-package": "^8.0.1",
     "prettier": "2.8.8",
     "react-native-svg-transformer": "^1.5.3",
     "react-test-renderer": "19.2.3",

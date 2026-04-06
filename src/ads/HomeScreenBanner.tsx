@@ -5,7 +5,7 @@ import { AD_REQUEST_OPTIONS, resolveBannerUnitId } from "./adUnitIds";
 import { ensureMobileAdsInitialized } from "./mobileAdsInit";
 
 /**
- * Small anchored adaptive banner for the home screen only (unmounts when navigating to the game).
+ * Small anchored adaptive banner — home and gameplay (same AdMob unit); transparent native BG via patch.
  */
 export function HomeScreenBanner() {
   const [failed, setFailed] = useState(false);

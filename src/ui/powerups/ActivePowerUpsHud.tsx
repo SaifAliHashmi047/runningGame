@@ -1,6 +1,7 @@
 import React, { memo, useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { fontPixel, heightPixel, scale } from "../../../utils/responsive";
+import { colors } from "../home/theme";
 import type { PowerUpKind } from "../../game/powers";
 import { defFor, POWERUP_DEFS } from "../../game/powers";
 import PowerUpIcon from "./PowerUpIcon";
@@ -107,8 +108,8 @@ function ActivePowerUpsHudInner(props: ActivePowerUpsHudProps) {
 
 export default memo(ActivePowerUpsHudInner);
 
-/** Clears `GameRunHud` score line + Skins button on the top-right (was overlapping timers). */
-const POWER_HUD_TOP = heightPixel(76);
+/** Clears `GameRunHud` score block + side chips on the top-right (was overlapping timers). */
+const POWER_HUD_TOP = heightPixel(88);
 
 const styles = StyleSheet.create({
   row: {
@@ -142,7 +143,8 @@ const styles = StyleSheet.create({
     marginTop: heightPixel(2),
     fontSize: fontPixel(10),
     fontWeight: "800",
-    color: "rgba(226,232,240,0.92)",
+    color: colors.ice,
     letterSpacing: 0.3,
+    fontVariant: ["tabular-nums"],
   },
 });
