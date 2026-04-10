@@ -23,6 +23,8 @@ const RADIUS_MD = scale(14);
 export type GameRunHudProps = {
   score: number;
   distanceFloor: number;
+  /** Total coin wallet (matches shop / persistence). */
+  coinsCollected: number;
   gameOver?: boolean;
   shopOpen?: boolean;
   runPaused?: boolean;
@@ -105,6 +107,7 @@ function GlassTextButton({
 function GameRunHudInner({
   score,
   distanceFloor,
+  coinsCollected,
   gameOver = false,
   shopOpen = false,
   runPaused = false,
@@ -118,6 +121,7 @@ function GameRunHudInner({
   const compact = winW < 360;
   const scoreFont = compact ? fontPixel(22) : fontPixel(27);
   const distFont = compact ? fontPixel(11) : fontPixel(12);
+  const coinFont = compact ? fontPixel(12) : fontPixel(13);
 
   const scoreScale = useSharedValue(1);
   const prevScore = useRef<number | null>(null);
@@ -187,6 +191,14 @@ function GameRunHudInner({
             <Text style={[styles.runHudDistance, { fontSize: distFont }]} numberOfLines={1}>
               {distanceFloor.toLocaleString()} m
             </Text>
+            <Text style={styles.coinTag}>COINS</Text>
+            <Text
+              style={[styles.runHudCoins, { fontSize: coinFont }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {Math.max(0, Math.floor(coinsCollected)).toLocaleString()}
+            </Text>
           </View>
         </View>
 
@@ -242,10 +254,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: scale(6),
   },
   scorePlate: {
-    minWidth: scale(158),
+    minWidth: scale(168),
     maxWidth: "92%",
     paddingTop: heightPixel(8),
-    paddingBottom: heightPixel(7),
+    paddingBottom: heightPixel(9),
     paddingHorizontal: scale(18),
     borderRadius: RADIUS_MD,
     backgroundColor: GLASS_BG,
@@ -296,6 +308,27 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "rgba(186,200,220,0.82)",
     textAlign: "center",
+    fontVariant: ["tabular-nums"],
+    fontFamily: fontUi.mono,
+  },
+  coinTag: {
+    marginTop: heightPixel(8),
+    fontSize: fontPixel(8),
+    letterSpacing: scale(2.4),
+    color: "rgba(253,224,71,0.55)",
+    fontWeight: "700",
+    textTransform: "uppercase",
+    marginBottom: heightPixel(2),
+    fontFamily: fontUi.mono,
+  },
+  runHudCoins: {
+    fontWeight: "800",
+    color: "rgba(253,224,71,0.98)",
+    textShadowColor: "rgba(0,0,0,0.4)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+    textAlign: "center",
+    width: "100%",
     fontVariant: ["tabular-nums"],
     fontFamily: fontUi.mono,
   },

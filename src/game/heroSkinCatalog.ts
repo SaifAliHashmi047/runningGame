@@ -28,30 +28,6 @@ export const SHOP_SKIN_ROWS: ShopSkinRow[] = [
     sail: "#f1f5f9",
   },
   {
-    id: "sloop",
-    name: "Sloop",
-    price: 3_000,
-    variant: "sloop",
-    hull: "#7c3aed",
-    sail: "#e9d5ff",
-  },
-  {
-    id: "brig",
-    name: "Brig",
-    price: 9_000,
-    variant: "brig",
-    hull: "#0ea5e9",
-    sail: "#bae6fd",
-  },
-  {
-    id: "stealth",
-    name: "Stealth",
-    price: 16_000,
-    variant: "stealth",
-    hull: "#111827",
-    sail: "#d1d5db",
-  },
-  {
     id: "hero_shuttle",
     name: "Orbiter Shuttle",
     price: 22_000,
@@ -128,6 +104,21 @@ export const SHOP_SKIN_ROWS: ShopSkinRow[] = [
     milestone: { kind: "distance", meters: 28_000 },
   },
 ];
+
+const KNOWN_SHOP_SKIN_IDS = new Set(SHOP_SKIN_ROWS.map((r) => r.id));
+
+/** Drop unknown / removed skin ids; always include `classic` if list non-empty. */
+export function sanitizeOwnedSkins(ids: string[]): string[] {
+  const next = [...new Set(ids.filter((id) => KNOWN_SHOP_SKIN_IDS.has(id)))];
+  if (next.length === 0) return ["classic"];
+  if (!next.includes("classic")) next.unshift("classic");
+  return next;
+}
+
+export function coerceCurrentSkinId(raw: string | null | undefined): string {
+  if (raw && KNOWN_SHOP_SKIN_IDS.has(raw)) return raw;
+  return "classic";
+}
 
 export function heroImageForSkinId(skinId: string): ImageSourcePropType | undefined {
   return SHOP_SKIN_ROWS.find((r) => r.id === skinId)?.image;

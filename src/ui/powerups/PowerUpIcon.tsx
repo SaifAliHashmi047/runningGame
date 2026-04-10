@@ -1,29 +1,14 @@
 import React, { memo } from "react";
-import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import type { SvgProps } from "react-native-svg";
-import type { PowerUpKind } from "../../game/powers";
 import {
-  PowerShieldSvg,
-  PowerMagnetSvg,
-  PowerBoostSvg,
-  PowerSlowTimeSvg,
-  PowerMultiplierSvg,
-  PowerGhostPhaseSvg,
-  PowerCoinBurstSvg,
-} from "../../game/assets";
-import { GameSvgArt } from "../../game/svgArt";
-
-type SvgMod = React.ComponentType<SvgProps> | number;
-
-const SVG_BY_KIND: Record<PowerUpKind, SvgMod> = {
-  shield: PowerShieldSvg,
-  magnet: PowerMagnetSvg,
-  boost: PowerBoostSvg,
-  slowTime: PowerSlowTimeSvg,
-  multiplier: PowerMultiplierSvg,
-  ghostPhase: PowerGhostPhaseSvg,
-  coinBurst: PowerCoinBurstSvg,
-};
+  Image,
+  Platform,
+  StyleSheet,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
+import type { PowerUpKind } from "../../game/powers";
+import { POWERUP_BITMAP } from "../../game/assets/powers/powerupBitmaps";
 
 export type PowerUpIconProps = {
   kind: PowerUpKind;
@@ -34,14 +19,20 @@ export type PowerUpIconProps = {
 };
 
 function PowerUpIconInner({ kind, size, style, ambient = false }: PowerUpIconProps) {
-  const mod = SVG_BY_KIND[kind];
   const pad = ambient ? Math.max(2, Math.round(size * 0.08)) : 0;
   const inner = size - pad * 2;
+  const source = POWERUP_BITMAP[kind];
 
   return (
-    <View style={[styles.wrap, { width: size, height: size, borderRadius: size * 0.28 }, style]}>
+    <View style={[styles.wrap, { width: size, height: size }, style]}>
       <View style={[styles.art, ambient && styles.artAmbient]}>
-        <GameSvgArt module={mod} width={inner} height={inner} />
+        <Image
+          source={source}
+          style={{ width: inner, height: inner }}
+          resizeMode="contain"
+          fadeDuration={Platform.OS === "android" ? 0 : undefined}
+          accessibilityIgnoresInvertColors
+        />
       </View>
     </View>
   );
@@ -53,10 +44,7 @@ const styles = StyleSheet.create({
   wrap: {
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
-    backgroundColor: "rgba(15,23,42,0.35)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.2)",
+    backgroundColor: "transparent",
   },
   art: {
     alignItems: "center",

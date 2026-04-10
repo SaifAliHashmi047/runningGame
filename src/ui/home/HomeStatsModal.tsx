@@ -12,7 +12,11 @@ import LinearGradient from "react-native-linear-gradient";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getAudioManager } from "../../audio";
-import { SHOP_SKIN_ROWS } from "../../game/heroSkinCatalog";
+import {
+  SHOP_SKIN_ROWS,
+  coerceCurrentSkinId,
+  sanitizeOwnedSkins,
+} from "../../game/heroSkinCatalog";
 import {
   CURRENT_SKIN_KEY,
   OWNED_SKINS_KEY,
@@ -61,15 +65,17 @@ export default function HomeStatsModal({ visible, highScore, onClose }: Props) {
         if (rawOwned) {
           try {
             const parsed = JSON.parse(rawOwned);
-            if (Array.isArray(parsed)) ownedCount = parsed.length;
+            if (Array.isArray(parsed)) {
+              ownedCount = sanitizeOwnedSkins(parsed).length;
+            }
           } catch {
             /* ignore */
           }
         }
         setSkinsOwned(ownedCount);
-        const skinId = rawCurrent || "classic";
+        const skinId = coerceCurrentSkinId(rawCurrent ?? undefined);
         const row = SHOP_SKIN_ROWS.find((s) => s.id === skinId);
-        setEquippedName(row?.name ?? skinId);
+        setEquippedName(row?.name ?? "Classic");
       } catch {
         if (!cancelled) {
           setTotalRuns(0);

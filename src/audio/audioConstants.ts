@@ -17,14 +17,12 @@ export const AUDIO_GAIN = {
   coin: 0.42,
   powerup: 0.52,
   zoneUp: 0.48,
-  death: 0.72,
+  death: 0.58,
+  gameOver: 0.52,
   buttonTap: 0.28,
-  obstacleHit: 0.5,
+  obstacleHit: 0.55,
 } as const;
 
 export const AUDIO_TIMING = {
   coinMinIntervalMs: 52,
-  coinComboResetMs: 140,
-  coinComboPitchStep: 0.028,
-  coinComboPitchMax: 0.22,
 } as const;

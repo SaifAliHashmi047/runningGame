@@ -14,6 +14,8 @@ export type GameOverOverlayProps = {
   onReviveVideo: () => void;
   onRetry: () => void;
   onExitToHome: () => void;
+  /** Let touches outside the card reach the HUD (e.g. skins) while keeping the card interactive. */
+  passThroughOutsideCard?: boolean;
 };
 
 function GameOverOverlayInner({
@@ -25,14 +27,19 @@ function GameOverOverlayInner({
   onReviveVideo,
   onRetry,
   onExitToHome,
+  passThroughOutsideCard = true,
 }: GameOverOverlayProps) {
   return (
     <Animated.View
       entering={FadeIn.duration(220)}
       style={styles.scrim}
-      pointerEvents="auto"
+      pointerEvents={passThroughOutsideCard ? "box-none" : "auto"}
     >
-      <Animated.View entering={FadeInDown.duration(340).delay(30)} style={styles.cardShell}>
+      <Animated.View
+        entering={FadeInDown.duration(340).delay(30)}
+        style={styles.cardShell}
+        pointerEvents="auto"
+      >
         <LinearGradient
           colors={["rgba(0,229,255,0.55)", "rgba(0,229,255,0.08)", "transparent"]}
           start={{ x: 0.5, y: 0 }}

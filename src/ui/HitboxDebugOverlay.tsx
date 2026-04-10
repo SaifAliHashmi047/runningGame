@@ -3,6 +3,8 @@ import { View, StyleSheet } from "react-native";
 import type { ObstacleVisual } from "../game/types";
 import {
   DEBUG_DRAW_COLLISION_BOXES,
+  DEBUG_DRAW_OBSTACLE_HITBOX,
+  DEBUG_DRAW_PLAYER_HITBOX,
   DEBUG_DRAW_VISUAL_BOUNDS,
   obstacleCollisionRect,
   obstacleVisualSize,
@@ -28,9 +30,12 @@ type Props = {
   obstacles: readonly HitboxDebugObstacle[];
 };
 
+/** Obstacle collision outline — distinct from player pink. */
+const OBSTACLE_HITBOX_COLOR = "rgba(56, 189, 248, 0.98)";
+
 /**
- * Draws collision AABB (green) and optional visual bounds (cyan) for tuning `hitboxConfig`.
- * Toggle `DEBUG_DRAW_COLLISION_BOXES` / `DEBUG_DRAW_VISUAL_BOUNDS` in `src/game/hitboxConfig.ts`.
+ * Hero collision in pink; obstacle **collision** AABBs in sky blue (actual `collides()` rects).
+ * Flags in `src/game/hitboxConfig.ts`.
  */
 export default function HitboxDebugOverlay({
   screenHeight,
@@ -41,7 +46,14 @@ export default function HitboxDebugOverlay({
   playerHeight,
   obstacles,
 }: Props) {
-  if (!DEBUG_DRAW_COLLISION_BOXES && !DEBUG_DRAW_VISUAL_BOUNDS) return null;
+  if (
+    !DEBUG_DRAW_PLAYER_HITBOX &&
+    !DEBUG_DRAW_OBSTACLE_HITBOX &&
+    !DEBUG_DRAW_COLLISION_BOXES &&
+    !DEBUG_DRAW_VISUAL_BOUNDS
+  ) {
+    return null;
+  }
 
   const p = playerCollisionAabb({
     playerX,
@@ -54,18 +66,20 @@ export default function HitboxDebugOverlay({
 
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
-      <View
-        style={[
-          styles.debugRect,
-          {
-            left: p.left,
-            top: p.top,
-            width: Math.max(1, p.right - p.left),
-            height: Math.max(1, p.bottom - p.top),
-            borderColor: "rgba(248,113,113,0.95)",
-          },
-        ]}
-      />
+      {(DEBUG_DRAW_PLAYER_HITBOX || DEBUG_DRAW_COLLISION_BOXES) && (
+        <View
+          style={[
+            styles.debugRect,
+            {
+              left: p.left,
+              top: p.top,
+              width: Math.max(1, p.right - p.left),
+              height: Math.max(1, p.bottom - p.top),
+              borderColor: "rgba(255, 105, 180, 0.98)",
+            },
+          ]}
+        />
+      )}
 
       {DEBUG_DRAW_VISUAL_BOUNDS &&
         obstacles.map((obs) => {
@@ -87,7 +101,7 @@ export default function HitboxDebugOverlay({
           );
         })}
 
-      {DEBUG_DRAW_COLLISION_BOXES &&
+      {(DEBUG_DRAW_OBSTACLE_HITBOX || DEBUG_DRAW_COLLISION_BOXES) &&
         obstacles.map((obs) => {
           const r = obstacleCollisionRect(obs);
           return (
@@ -100,7 +114,9 @@ export default function HitboxDebugOverlay({
                   top: r.y,
                   width: r.w,
                   height: r.h,
-                  borderColor: "rgba(74,222,128,0.95)",
+                  borderColor: DEBUG_DRAW_OBSTACLE_HITBOX
+                    ? OBSTACLE_HITBOX_COLOR
+                    : "rgba(74,222,128,0.95)",
                 },
               ]}
             />

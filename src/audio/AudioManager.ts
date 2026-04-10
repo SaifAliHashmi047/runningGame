@@ -1,12 +1,14 @@
 import Sound from "react-native-sound";
 import { AUDIO_GAIN, AUDIO_MIX, AUDIO_TIMING } from "./audioConstants";
 import { BUNDLE_AUDIO } from "./audioFiles";
+import { mainBundleFilename } from "./bundleFilename";
 
 type LoadedMap = Record<string, Sound | null>;
 
 function loadSound(filename: string): Promise<Sound> {
+  const path = mainBundleFilename(filename);
   return new Promise((resolve, reject) => {
-    const s = new Sound(filename, Sound.MAIN_BUNDLE, (err) => {
+    const s = new Sound(path, Sound.MAIN_BUNDLE, (err) => {
       if (err) {
         reject(err);
         return;
@@ -64,9 +66,6 @@ export class GameAudioManager {
   private configured = false;
 
   private lastCoinMs = 0;
-  private lastCoinComboAt = 0;
-  private coinCombo = 0;
-  private coinVariant = 0;
   private deathLock = false;
 
   private effAmbientVol = AUDIO_MIX.ambient * AUDIO_MIX.ambientMaster;
@@ -88,9 +87,9 @@ export class GameAudioManager {
     this.preloadPromise = (async () => {
       const entries: [string, string][] = [
         ["shipHum", BUNDLE_AUDIO.shipHum],
-        ["coin1", BUNDLE_AUDIO.coin1],
-        ["coin2", BUNDLE_AUDIO.coin2],
+        ["coin", BUNDLE_AUDIO.coin],
         ["death", BUNDLE_AUDIO.death],
+        ["gameOver", BUNDLE_AUDIO.gameOver],
         ["zoneUp", BUNDLE_AUDIO.zoneUp],
         ["powerup", BUNDLE_AUDIO.powerup],
         ["buttonTap", BUNDLE_AUDIO.buttonTap],
@@ -101,7 +100,10 @@ export class GameAudioManager {
           try {
             const s = await loadSound(file);
             this.loaded[key] = s;
-          } catch {
+          } catch (e) {
+            if (__DEV__) {
+              console.warn(`[SFX] failed to load ${file}`, e);
+            }
             this.loaded[key] = null;
           }
         })
@@ -161,37 +163,23 @@ export class GameAudioManager {
       return;
     }
     this.lastCoinMs = now;
-    if (now - this.lastCoinComboAt > AUDIO_TIMING.coinComboResetMs) {
-      this.coinCombo = 0;
-    } else {
-      this.coinCombo = Math.min(12, this.coinCombo + 1);
-    }
-    this.lastCoinComboAt = now;
 
-    this.coinVariant ^= 1;
-    const key = this.coinVariant ? "coin2" : "coin1";
-    const s = this.loaded[key];
+    const s = this.loaded.coin;
     if (!s?.isLoaded()) return;
 
     const base = AUDIO_GAIN.coin * AUDIO_MIX.sfx * AUDIO_MIX.sfxMaster;
-    const pitch = 1 + Math.min(this.coinCombo * AUDIO_TIMING.coinComboPitchStep, AUDIO_TIMING.coinComboPitchMax);
     try {
       s.stop(() => {
         s.setVolume(base);
-        s.setSpeed(pitch);
-        s.play(() => {
-          try {
-            s.setSpeed(1);
-          } catch {
-            /* ignore */
-          }
-        });
+        s.setSpeed(1);
+        s.play();
       });
     } catch {
       /* ignore */
     }
   }
 
+  /** Explosion clip when the ship dies on an obstacle (`BUNDLE_AUDIO.death`). */
   playDeath(): void {
     if (this.deathLock) return;
     this.deathLock = true;
@@ -201,35 +189,80 @@ export class GameAudioManager {
       return;
     }
     const vol = AUDIO_GAIN.death * AUDIO_MIX.sfx * AUDIO_MIX.sfxMaster;
+    const releaseLock = (): void => {
+      this.deathLock = false;
+    };
     try {
       s.stop(() => {
-        s.setVolume(vol);
-        s.setSpeed(1);
-        s.play(() => {
-          this.deathLock = false;
-        });
+        try {
+          s.setVolume(vol);
+          s.setSpeed(1);
+          s.setCurrentTime(0);
+          s.play(() => {
+            releaseLock();
+          });
+        } catch {
+          releaseLock();
+        }
       });
     } catch {
-      this.deathLock = false;
+      releaseLock();
     }
-    setTimeout(() => {
-      this.deathLock = false;
-    }, 2400);
+    setTimeout(releaseLock, 5000);
   }
 
-  playPowerup(): void {
-    const s = this.loaded.powerup;
+  /** Game-over sting (`game_over.mp3`) — call shortly after `playDeath` for a layered cue. */
+  playGameOverSting(): void {
+    const s = this.loaded.gameOver;
     if (!s?.isLoaded()) return;
-    const vol = AUDIO_GAIN.powerup * AUDIO_MIX.sfx * AUDIO_MIX.sfxMaster;
+    const vol = AUDIO_GAIN.gameOver * AUDIO_MIX.sfx * AUDIO_MIX.sfxMaster;
     try {
       s.stop(() => {
-        s.setVolume(vol);
-        s.setSpeed(1);
-        s.play();
+        try {
+          s.setVolume(vol);
+          s.setSpeed(1);
+          s.setCurrentTime(0);
+          s.play();
+        } catch {
+          /* ignore */
+        }
       });
     } catch {
       /* ignore */
     }
+  }
+
+  /**
+   * Power-up pickup — waits for `preload()` so early pickups still play (avoids silent no-op).
+   * Omits `setSpeed` here: some Android `MediaPlayer` builds fail MP3 playback after `setSpeed`.
+   */
+  playPowerup(): void {
+    void this.preload().then(() => {
+      const s = this.loaded.powerup;
+      if (!s?.isLoaded()) {
+        if (__DEV__) {
+          console.warn("[SFX] playPowerup: powerup clip missing or failed to load");
+        }
+        return;
+      }
+      const vol = AUDIO_GAIN.powerup * AUDIO_MIX.sfx * AUDIO_MIX.sfxMaster;
+      const fire = (): void => {
+        try {
+          s.setVolume(vol);
+          s.setCurrentTime(0);
+          s.play();
+        } catch {
+          /* ignore */
+        }
+      };
+      try {
+        s.stop(() => {
+          fire();
+        });
+      } catch {
+        fire();
+      }
+    });
   }
 
   playZoneUp(): void {
@@ -266,8 +299,14 @@ export class GameAudioManager {
     const vol = AUDIO_GAIN.obstacleHit * AUDIO_MIX.sfx * AUDIO_MIX.sfxMaster;
     try {
       s.stop(() => {
-        s.setVolume(vol);
-        s.play();
+        try {
+          s.setVolume(vol);
+          s.setSpeed(1);
+          s.setCurrentTime(0);
+          s.play();
+        } catch {
+          /* ignore */
+        }
       });
     } catch {
       /* ignore */
@@ -299,10 +338,17 @@ export class GameAudioManager {
     this.stopShipHum();
   }
 
-  /** Game over: hum off, death sting */
+  /**
+   * Fatal obstacle collision: impact SFX, stop ship hum, explosion, then game-over sting.
+   * Call only after `preload()` has resolved so clips are loaded.
+   */
   onGameOver(): void {
+    this.playObstacleHit();
     this.stopShipHum();
     this.playDeath();
+    setTimeout(() => {
+      this.playGameOverSting();
+    }, 140);
   }
 
   /** After retry — restore ship hum */

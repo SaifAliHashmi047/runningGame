@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -12,7 +12,8 @@ import {
   useWindowDimensions,
   type ImageSourcePropType,
 } from "react-native";
-import Ship, { ShipVariant } from "./Ship";
+import type { ShipVariant } from "./Ship";
+import HeroHoverShip from "./HeroHoverShip";
 import { fontPixel, heightPixel, scale } from "../utils/responsive";
 import { getAudioManager } from "../src/audio";
 import type { ShopSkinRow } from "../src/game/heroSkinCatalog";
@@ -63,8 +64,20 @@ export default function ShopModal({
   controlButtonStyle,
   controlTextStyle,
 }: Props) {
-  const { height: winH } = useWindowDimensions();
+  const { height: winH, width: winW } = useWindowDimensions();
   const skinListMaxH = Math.min(heightPixel(400), winH * 0.42);
+  const cardMaxW = useMemo(
+    () => Math.min(scale(420), winW - scale(24)),
+    [winW],
+  );
+  const modalHPad = useMemo(
+    () => Math.max(scale(14), Math.floor(winW * 0.06)),
+    [winW],
+  );
+  const modalVPad = useMemo(
+    () => Math.max(heightPixel(12), Math.floor(winH * 0.03)),
+    [winH],
+  );
   const [videoCooldownMs, setVideoCooldownMs] = useState(0);
 
   useEffect(() => {
@@ -100,8 +113,13 @@ export default function ShopModal({
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={styles.modalBackdrop} />
         </TouchableWithoutFeedback>
-        <View style={styles.modalCenter}>
-          <View style={styles.modalCardShell}>
+        <View
+          style={[
+            styles.modalCenter,
+            { paddingHorizontal: modalHPad, paddingVertical: modalVPad },
+          ]}
+        >
+          <View style={[styles.modalCardShell, { maxWidth: cardMaxW }]}>
             <LinearGradient
               colors={["rgba(0,229,255,0.5)", "rgba(0,229,255,0.12)", "transparent"]}
               start={{ x: 0, y: 0 }}
@@ -261,14 +279,32 @@ export default function ShopModal({
               style={({ pressed }) => [
                 styles.closeBtn,
                 controlButtonStyle,
-                { marginTop: heightPixel(14), opacity: pressed ? 0.88 : 1 },
+                {
+                  marginTop: heightPixel(14),
+                  marginLeft: 0,
+                  alignSelf: "stretch",
+                  width: "100%",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  paddingVertical: heightPixel(14),
+                  paddingHorizontal: scale(16),
+                  opacity: pressed ? 0.88 : 1,
+                },
               ]}
               onPress={() => {
                 getAudioManager().playButtonTap();
                 onClose();
               }}
             >
-              <Text style={[controlTextStyle, styles.closeBtnText]}>Close</Text>
+              <Text
+                style={[
+                  controlTextStyle,
+                  styles.closeBtnText,
+                  { textAlign: "center", width: "100%" },
+                ]}
+              >
+                Close
+              </Text>
             </Pressable>
             </View>
           </View>
@@ -280,9 +316,9 @@ export default function ShopModal({
 
 function SkinThumb({
   image,
-  variant,
-  hull,
-  sail,
+  variant: _variant,
+  hull: _hull,
+  sail: _sail,
 }: {
   image?: ImageSourcePropType;
   variant: ShipVariant;
@@ -298,7 +334,11 @@ function SkinThumb({
   }
   return (
     <View style={styles.thumbBox}>
-      <Ship style={{ position: "relative", left: 0, bottom: 0 }} variant={variant} hullColor={hull} sailColor={sail} />
+      <HeroHoverShip
+        width={scale(56)}
+        height={scale(60)}
+        style={{ position: "relative", left: 0, bottom: 0 }}
+      />
     </View>
   );
 }
@@ -351,11 +391,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: scale(20),
   },
   modalCardShell: {
     width: "100%",
-    maxWidth: scale(420),
+    alignSelf: "center",
     borderRadius: scale(radius.lg + 2),
     overflow: "hidden",
     ...shadow.heavy,

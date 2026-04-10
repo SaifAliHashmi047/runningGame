@@ -67,9 +67,8 @@ function writeNoiseBurst(filePath, durationSec, gain = 0.2) {
   fs.writeFileSync(filePath, buf);
 }
 
+/** Coin WAV is a real asset (`coin_pickup.wav`); not generated — keep in `res/raw` + iOS bundle. */
 const specs = [
-  { rel: "sfx/coin_collect_1.wav", durationSec: 0.055, sineHz: 920, gain: 0.14 },
-  { rel: "sfx/coin_collect_2.wav", durationSec: 0.055, sineHz: 740, gain: 0.13 },
   { rel: "sfx/hero_dead.wav", durationSec: 0.38, sineHz: 0, gain: 0 },
   { rel: "sfx/zone_speed_up.wav", durationSec: 0.22, sineHz: 0, gain: 0 },
   { rel: "sfx/powerup_collect.wav", durationSec: 0.16, sineHz: 330, gain: 0.16 },

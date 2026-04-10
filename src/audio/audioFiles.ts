@@ -7,11 +7,15 @@
  */
 export const BUNDLE_AUDIO = {
   shipHum: "ship_hum_loop.wav",
-  coin1: "coin_collect_1.wav",
-  coin2: "coin_collect_2.wav",
-  death: "hero_dead.wav",
+  /** Single coin pickup clip — one `Sound` instance, preloaded once (Mixkit success alert). */
+  coin: "coin_pickup.wav",
+  /** Obstacle collision / game-over explosion (MP3). */
+  death: "obstacle_explosion.mp3",
+  /** Game-over sting layered after explosion (MP3). */
+  gameOver: "game_over.mp3",
   zoneUp: "zone_speed_up.wav",
-  powerup: "powerup_collect.wav",
+  /** Power-up pickup (MP3). */
+  powerup: "powerup_pickup.mp3",
   buttonTap: "button_tap.wav",
   obstacleHit: "obstacle_hit.wav",
 } as const;

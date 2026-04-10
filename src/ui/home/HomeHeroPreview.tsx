@@ -1,15 +1,20 @@
 import React, { memo } from "react";
 import { View, Image, StyleSheet } from "react-native";
-import Ship from "../../../components/Ship";
-import { heroImageForSkinId, SHOP_SKIN_ROWS } from "../../game/heroSkinCatalog";
+import HeroHoverShip from "../../../components/HeroHoverShip";
+import { heroImageForSkinId } from "../../game/heroSkinCatalog";
 import { scale, heightPixel } from "../../../utils/responsive";
+
+/** Match `App.tsx` gameplay hero aspect (56×60 design units). */
+const GAMEPLAY_HERO_W = 56;
+const GAMEPLAY_HERO_H = 60;
 
 type Props = { skinId: string };
 
 function HomeHeroPreviewInner({ skinId }: Props) {
-  const row = SHOP_SKIN_ROWS.find((r) => r.id === skinId);
   const img = heroImageForSkinId(skinId);
   const box = scale(100);
+  const vectorH = Math.min(scale(GAMEPLAY_HERO_H), box);
+  const vectorW = Math.round((GAMEPLAY_HERO_W / GAMEPLAY_HERO_H) * vectorH);
 
   if (img) {
     return (
@@ -21,11 +26,10 @@ function HomeHeroPreviewInner({ skinId }: Props) {
 
   return (
     <View style={[styles.wrap, { width: box, height: box }]}>
-      <Ship
+      <HeroHoverShip
+        width={vectorW}
+        height={vectorH}
         style={{ position: "relative", left: 0, bottom: 0 }}
-        variant={row?.variant ?? "classic"}
-        hullColor={row?.hull ?? "#8b4513"}
-        sailColor={row?.sail ?? "#f1f5f9"}
       />
     </View>
   );

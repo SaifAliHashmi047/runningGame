@@ -13,13 +13,15 @@
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		98FFC4D1EBE755455381A657 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 		E4D1B001111111100000103 /* button_tap.wav in Resources */ = {isa = PBXBuildFile; fileRef = E4D1B001111111100000003 /* button_tap.wav */; };
-		E4D1B001111111100000104 /* coin_collect_1.wav in Resources */ = {isa = PBXBuildFile; fileRef = E4D1B001111111100000004 /* coin_collect_1.wav */; };
-		E4D1B001111111100000105 /* coin_collect_2.wav in Resources */ = {isa = PBXBuildFile; fileRef = E4D1B001111111100000005 /* coin_collect_2.wav */; };
-		E4D1B001111111100000106 /* hero_dead.wav in Resources */ = {isa = PBXBuildFile; fileRef = E4D1B001111111100000006 /* hero_dead.wav */; };
+		E4D1B001111111100000104 /* coin_pickup.wav in Resources */ = {isa = PBXBuildFile; fileRef = E4D1B001111111100000004 /* coin_pickup.wav */; };
+		E4D1B001111111100000106 /* game_over.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = E4D1B001111111100000006 /* game_over.mp3 */; };
 		E4D1B001111111100000107 /* obstacle_hit.wav in Resources */ = {isa = PBXBuildFile; fileRef = E4D1B001111111100000007 /* obstacle_hit.wav */; };
-		E4D1B001111111100000108 /* powerup_collect.wav in Resources */ = {isa = PBXBuildFile; fileRef = E4D1B001111111100000008 /* powerup_collect.wav */; };
+		E4D1B00111111110000011F /* powerup_pickup.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = E4D1B00111111110000010F /* powerup_pickup.mp3 */; };
 		E4D1B001111111100000109 /* ship_hum_loop.wav in Resources */ = {isa = PBXBuildFile; fileRef = E4D1B001111111100000009 /* ship_hum_loop.wav */; };
 		E4D1B00111111110000010A /* zone_speed_up.wav in Resources */ = {isa = PBXBuildFile; fileRef = E4D1B00111111110000000A /* zone_speed_up.wav */; };
+		E4D1B00111111110000011B /* ui_music.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = E4D1B00111111110000010B /* ui_music.mp3 */; };
+		E4D1B00111111110000011C /* game_music.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = E4D1B00111111110000010C /* game_music.mp3 */; };
+		E4D1B00111111110000011E /* obstacle_explosion.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = E4D1B00111111110000010E /* obstacle_explosion.mp3 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,13 +35,15 @@
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = StackHouse/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = StackHouse/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		E4D1B001111111100000003 /* button_tap.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = button_tap.wav; path = StackHouse/button_tap.wav; sourceTree = "<group>"; };
-		E4D1B001111111100000004 /* coin_collect_1.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = coin_collect_1.wav; path = StackHouse/coin_collect_1.wav; sourceTree = "<group>"; };
-		E4D1B001111111100000005 /* coin_collect_2.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = coin_collect_2.wav; path = StackHouse/coin_collect_2.wav; sourceTree = "<group>"; };
-		E4D1B001111111100000006 /* hero_dead.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = hero_dead.wav; path = StackHouse/hero_dead.wav; sourceTree = "<group>"; };
+		E4D1B001111111100000004 /* coin_pickup.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = coin_pickup.wav; path = StackHouse/coin_pickup.wav; sourceTree = "<group>"; };
+		E4D1B001111111100000006 /* game_over.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; name = game_over.mp3; path = StackHouse/game_over.mp3; sourceTree = "<group>"; };
 		E4D1B001111111100000007 /* obstacle_hit.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = obstacle_hit.wav; path = StackHouse/obstacle_hit.wav; sourceTree = "<group>"; };
-		E4D1B001111111100000008 /* powerup_collect.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = powerup_collect.wav; path = StackHouse/powerup_collect.wav; sourceTree = "<group>"; };
+		E4D1B00111111110000010F /* powerup_pickup.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; name = powerup_pickup.mp3; path = StackHouse/powerup_pickup.mp3; sourceTree = "<group>"; };
 		E4D1B001111111100000009 /* ship_hum_loop.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = ship_hum_loop.wav; path = StackHouse/ship_hum_loop.wav; sourceTree = "<group>"; };
 		E4D1B00111111110000000A /* zone_speed_up.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; name = zone_speed_up.wav; path = StackHouse/zone_speed_up.wav; sourceTree = "<group>"; };
+		E4D1B00111111110000010B /* ui_music.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; name = ui_music.mp3; path = StackHouse/ui_music.mp3; sourceTree = "<group>"; };
+		E4D1B00111111110000010C /* game_music.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; name = game_music.mp3; path = StackHouse/game_music.mp3; sourceTree = "<group>"; };
+		E4D1B00111111110000010E /* obstacle_explosion.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; name = obstacle_explosion.mp3; path = StackHouse/obstacle_explosion.mp3; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -64,11 +68,13 @@
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
 				E4D1B001111111100000003 /* button_tap.wav */,
-				E4D1B001111111100000004 /* coin_collect_1.wav */,
-				E4D1B001111111100000005 /* coin_collect_2.wav */,
-				E4D1B001111111100000006 /* hero_dead.wav */,
+				E4D1B001111111100000004 /* coin_pickup.wav */,
+				E4D1B001111111100000006 /* game_over.mp3 */,
+				E4D1B00111111110000010B /* ui_music.mp3 */,
+				E4D1B00111111110000010C /* game_music.mp3 */,
+				E4D1B00111111110000010E /* obstacle_explosion.mp3 */,
 				E4D1B001111111100000007 /* obstacle_hit.wav */,
-				E4D1B001111111100000008 /* powerup_collect.wav */,
+				E4D1B00111111110000010F /* powerup_pickup.mp3 */,
 				E4D1B001111111100000009 /* ship_hum_loop.wav */,
 				E4D1B00111111110000000A /* zone_speed_up.wav */,
 			);
@@ -186,11 +192,13 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				98FFC4D1EBE755455381A657 /* PrivacyInfo.xcprivacy in Resources */,
 				E4D1B001111111100000103 /* button_tap.wav in Resources */,
-				E4D1B001111111100000104 /* coin_collect_1.wav in Resources */,
-				E4D1B001111111100000105 /* coin_collect_2.wav in Resources */,
-				E4D1B001111111100000106 /* hero_dead.wav in Resources */,
+				E4D1B001111111100000104 /* coin_pickup.wav in Resources */,
+				E4D1B001111111100000106 /* game_over.mp3 in Resources */,
+				E4D1B00111111110000011B /* ui_music.mp3 in Resources */,
+				E4D1B00111111110000011C /* game_music.mp3 in Resources */,
+				E4D1B00111111110000011E /* obstacle_explosion.mp3 in Resources */,
 				E4D1B001111111100000107 /* obstacle_hit.wav in Resources */,
-				E4D1B001111111100000108 /* powerup_collect.wav in Resources */,
+				E4D1B00111111110000011F /* powerup_pickup.mp3 in Resources */,
 				E4D1B001111111100000109 /* ship_hum_loop.wav in Resources */,
 				E4D1B00111111110000010A /* zone_speed_up.wav in Resources */,
 			);

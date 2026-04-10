@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { View, StyleSheet, useWindowDimensions } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Pressable, Text, View, StyleSheet, useWindowDimensions } from "react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -11,7 +11,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { HIGH_SCORE_KEY } from "../storage/persistenceKeys";
+import { HIGH_SCORE_KEY, MUSIC_ENABLED_KEY } from "../storage/persistenceKeys";
 import LogoMark from "../ui/home/LogoMark";
 import HomeCosmicBackground from "../ui/home/HomeCosmicBackground";
 import HomePlayButton from "../ui/home/HomePlayButton";
@@ -22,7 +22,12 @@ import HomeStatsModal from "../ui/home/HomeStatsModal";
 import HomeAtmosphere from "../ui/home/HomeAtmosphere";
 import { HomeScreenBanner } from "../ads";
 import { heightPixel, scale, wp } from "../../utils/responsive";
-import { getAudioManager } from "../audio";
+import {
+  getAudioManager,
+  getBackgroundMusicUserEnabled,
+  setBackgroundMusicUserEnabled,
+} from "../audio";
+import HomeSettingsModal from "../ui/home/HomeSettingsModal";
 
 type Props = {
   onPlay?: () => void;
@@ -61,6 +66,34 @@ export default function HomeScreen({
   const logoLayerMarginTop = compact ? heightPixel(4) : heightPixel(10);
   const [highScore, setHighScore] = useState(0);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [musicEnabled, setMusicEnabled] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(MUSIC_ENABLED_KEY);
+        const on = raw === null || raw !== "0";
+        if (!cancelled) setMusicEnabled(on);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    setMusicEnabled(getBackgroundMusicUserEnabled());
+  }, [settingsOpen]);
+
+  const onMusicChange = useCallback((enabled: boolean) => {
+    setMusicEnabled(enabled);
+    setBackgroundMusicUserEnabled(enabled);
+  }, []);
 
   const logoSize = useMemo(
     () =>
@@ -169,7 +202,23 @@ export default function HomeScreen({
             <Animated.View
               style={[styles.topZone, { paddingTop: heightPixel(8), paddingHorizontal: scale(18) }, cardsStyle]}
             >
-              <HomeTopStats highScore={highScore} coins={coins} />
+              <View style={styles.topRow}>
+                <View style={styles.topRowStats}>
+                  <HomeTopStats highScore={highScore} coins={coins} />
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Settings"
+                  hitSlop={12}
+                  style={({ pressed }) => [styles.settingsBtn, { opacity: pressed ? 0.85 : 1 }]}
+                  onPress={() => {
+                    getAudioManager().playButtonTap();
+                    setSettingsOpen(true);
+                  }}
+                >
+                  <Text style={styles.settingsBtnGlyph}>⚙</Text>
+                </Pressable>
+              </View>
             </Animated.View>
 
             <View style={styles.body}>
@@ -243,6 +292,12 @@ export default function HomeScreen({
               highScore={highScore}
               onClose={() => setStatsOpen(false)}
             />
+            <HomeSettingsModal
+              visible={settingsOpen}
+              musicEnabled={musicEnabled}
+              onMusicChange={onMusicChange}
+              onClose={() => setSettingsOpen(false)}
+            />
           </View>
         </SafeAreaView>
       </View>
@@ -270,6 +325,30 @@ const styles = StyleSheet.create({
     width: "100%",
     zIndex: 2,
     flexShrink: 0,
+  },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: scale(8),
+  },
+  topRowStats: {
+    flex: 1,
+    minWidth: 0,
+  },
+  settingsBtn: {
+    marginTop: heightPixel(6),
+    width: scale(44),
+    height: scale(44),
+    borderRadius: scale(14),
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(6,10,24,0.58)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(56,189,248,0.28)",
+  },
+  settingsBtnGlyph: {
+    fontSize: scale(22),
+    color: "#7dd3fc",
   },
   body: {
     flex: 1,

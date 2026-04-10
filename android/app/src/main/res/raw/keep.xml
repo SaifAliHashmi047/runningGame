@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  react-native-sound loads res/raw by name via getIdentifier(String, "raw", packageName).
+  Resource shrinking cannot see those string references — without keep rules, release builds
+  may strip MP3/WAV and every Sound prepare() fails with "resource not found".
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/ui_music,@raw/game_music,@raw/coin_pickup,@raw/game_over,@raw/obstacle_explosion,@raw/ship_hum_loop,@raw/zone_speed_up,@raw/powerup_collect,@raw/powerup_pickup,@raw/button_tap,@raw/obstacle_hit,@raw/hero_dead,@raw/coin_collect_1,@raw/coin_collect_2" />

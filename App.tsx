@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Animated, {
   cancelAnimation,
   ReduceMotion,
@@ -33,7 +33,12 @@ import {
   prepareReviveRewardedAd,
   showReviveRewardedAd,
 } from "./src/ads/reviveRewardedAd";
-import { SHOP_SKIN_ROWS, heroImageForSkinId } from "./src/game/heroSkinCatalog";
+import {
+  SHOP_SKIN_ROWS,
+  coerceCurrentSkinId,
+  heroImageForSkinId,
+  sanitizeOwnedSkins,
+} from "./src/game/heroSkinCatalog";
 import {
   loadBestSingleRunStats,
   mergeMilestoneUnlocks,
@@ -54,6 +59,8 @@ import type { ObstacleVisual } from "./src/game/types";
 import {
   aabbOverlap,
   DEBUG_DRAW_COLLISION_BOXES,
+  DEBUG_DRAW_OBSTACLE_HITBOX,
+  DEBUG_DRAW_PLAYER_HITBOX,
   DEBUG_DRAW_VISUAL_BOUNDS,
   obstacleCollisionRect,
   obstacleHitSize,
@@ -75,7 +82,14 @@ import type { PowerUpKind } from "./src/game/powers";
 import { pickPowerUpKind, POWERUP_DEFS } from "./src/game/powers";
 import { ActivePowerUpsHud, PowerPickupFlash } from "./src/ui/powerups";
 import AppStatusBar from "./src/ui/AppStatusBar";
-import { getAudioManager } from "./src/audio";
+import {
+  ensureBackgroundMusicLoaded,
+  getAudioManager,
+  pauseBackgroundMusic,
+  releaseGlobalMusic,
+  resumeBackgroundMusic,
+  setBackgroundMusicRoute,
+} from "./src/audio";
 import {
   OBSTACLE_SIZE_MIN,
   OBSTACLE_SIZE_MAX,
@@ -158,12 +172,12 @@ import {
   type PerfSamplerStats,
 } from "./src/game/performanceSampler";
 import FpsPerfOverlay from "./src/ui/FpsPerfOverlay";
+import HeroControlHintCallout from "./src/ui/game/HeroControlHintCallout";
 import GameRunHud from "./src/ui/game/GameRunHud";
 import GameOverOverlay from "./src/ui/game/GameOverOverlay";
 import PauseRibbon from "./src/ui/game/PauseRibbon";
 import GameplayLaneGuide from "./src/ui/game/GameplayLaneGuide";
 import AmbientParticles from "./src/ui/game/AmbientParticles";
-import PowerActionButton from "./src/ui/game/PowerActionButton";
 import {
   HUD_SCORE_THROTTLE_MS,
   MAX_ACTIVE_COINS,
@@ -195,6 +209,16 @@ import {
 const SCREEN_WIDTH = screenWidth;
 const SCREEN_HEIGHT = screenHeight;
 
+/**
+ * Vertical extent for sim + collision (hero, obstacles, coins). Must match the measured
+ * `gameRoot` view — not always `SCREEN_HEIGHT` when a banner dock reduces play area height.
+ */
+let gamePlayfieldHeightPx = SCREEN_HEIGHT;
+
+function gamePlayfieldH(): number {
+  return gamePlayfieldHeightPx > 0 ? gamePlayfieldHeightPx : SCREEN_HEIGHT;
+}
+
 /** Monotonic-ish frame timing (RN Hermes exposes `performance` at runtime; fall back safely). */
 const perfNow = (): number => {
   const p = (globalThis as { performance?: { now: () => number } }).performance;
@@ -204,10 +228,13 @@ const perfNow = (): number => {
 /** Kept in sync with `SAVED_COINS_KEY` so `resetGame` can restore the wallet after a run. */
 let lastPersistedCoinBalance = 0;
 
-function persistSavedCoins(coins: number) {
+function persistSavedCoins(coins: number): Promise<void> {
   const c = Math.max(0, Math.floor(coins));
   lastPersistedCoinBalance = c;
-  void AsyncStorage.setItem(SAVED_COINS_KEY, String(c)).catch(() => {});
+  return AsyncStorage.setItem(SAVED_COINS_KEY, String(c)).then(
+    () => undefined,
+    () => undefined,
+  );
 }
 
 /** Dev only: non-zero seeds saved coins on launch. Always `0` in production (`__DEV__` is false). */
@@ -251,7 +278,7 @@ function minPlayerSteerY(jumpY: number): number {
 /** Highest allowed steer (positive = ship higher on screen). `jumpY` is jump-only height. */
 function maxPlayerSteerY(jumpY: number): number {
   return (
-    SCREEN_HEIGHT -
+    gamePlayfieldH() -
     GAMEPLAY_TOP_INSET -
     GROUND_HEIGHT -
     jumpY -
@@ -267,17 +294,17 @@ function clampPlayerSteerY(steer: number, jumpY: number): number {
 }
 
 /**
- * Map responder `locationY` into the same space as `SCREEN_HEIGHT`.
- * Clamp to the play view height so a finger dragged under/over the play area (e.g. onto the
- * banner) does not produce bogus Y (which was snapping the hero to the top).
+ * Map responder `locationY` into the same vertical space as obstacle/hero sim coords
+ * (0 = top of playfield, `gamePlayfieldH()` = bottom).
  */
-function touchLocationYToScreenY(
+function touchLocationYToPlayfieldY(
   locationY: number,
   viewHeight: number,
 ): number {
-  const h = viewHeight > 0 ? viewHeight : SCREEN_HEIGHT;
+  const ph = gamePlayfieldH();
+  const h = viewHeight > 0 ? viewHeight : ph;
   const ly = Math.max(0, Math.min(h, locationY));
-  return (ly / h) * SCREEN_HEIGHT;
+  return (ly / h) * ph;
 }
 
 function touchLocationXToScreenX(
@@ -449,19 +476,41 @@ function isTouchInsideHeroDragStart(
   s: SimState,
 ): boolean {
   const sx = touchLocationXToScreenX(locationX, viewW);
-  const sy = touchLocationYToScreenY(locationY, viewH);
+  const sy = touchLocationYToPlayfieldY(locationY, viewH);
   const steer = s.playerSteerY;
   const jump = s.playerY;
   const slop = HERO_DRAG_START_SLOP;
+  const ph = gamePlayfieldH();
   const left = s.playerX - slop;
   const right = s.playerX + PLAYER_WIDTH + slop;
   const top =
-    SCREEN_HEIGHT -
-    (GROUND_HEIGHT + steer + jump + PLAYER_HEIGHT) -
-    slop;
-  const bottom = SCREEN_HEIGHT - (GROUND_HEIGHT + steer + jump) + slop;
+    ph - (GROUND_HEIGHT + steer + jump + PLAYER_HEIGHT) - slop;
+  const bottom = ph - (GROUND_HEIGHT + steer + jump) + slop;
   return sx >= left && sx <= right && sy >= top && sy <= bottom;
 }
+
+/** Screen / playfield distance from touch to hero visual center (px). */
+function distanceTouchToHeroCenterPx(
+  locationX: number,
+  locationY: number,
+  viewW: number,
+  viewH: number,
+  s: SimState,
+): number {
+  const sx = touchLocationXToScreenX(locationX, viewW);
+  const sy = touchLocationYToPlayfieldY(locationY, viewH);
+  const ph = gamePlayfieldH();
+  const steer = s.playerSteerY;
+  const jump = s.playerY;
+  const cx = s.playerX + PLAYER_WIDTH / 2;
+  const cy = ph - (GROUND_HEIGHT + steer + jump + PLAYER_HEIGHT / 2);
+  return Math.hypot(sx - cx, sy - cy);
+}
+
+/** Must be clearly away from the ship before we treat a drag as "far" (separate from drag hit slop). */
+const FAR_DRAG_HINT_MIN_DIST_FROM_HERO_PX = scale(72);
+/** Movement from touch start before we consider it a drag (not a tap). */
+const FAR_DRAG_HINT_MOVE_PX = scale(22);
 
 function collides(playerY: number, playerX: number, obs: Obstacle): boolean {
   const playerBox = playerCollisionAabb({
@@ -469,7 +518,7 @@ function collides(playerY: number, playerX: number, obs: Obstacle): boolean {
     playerY,
     playerWidth: PLAYER_WIDTH,
     playerHeight: PLAYER_HEIGHT,
-    screenHeight: SCREEN_HEIGHT,
+    screenHeight: gamePlayfieldH(),
     groundHeight: GROUND_HEIGHT,
   });
   const left = obs.x + obs.hitOffX;
@@ -489,8 +538,9 @@ function collidesPower(
 ): boolean {
   const pLeft = playerX;
   const pRight = playerX + PLAYER_WIDTH;
-  const pTop = SCREEN_HEIGHT - (GROUND_HEIGHT + playerY + PLAYER_HEIGHT);
-  const pBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + playerY);
+  const ph = gamePlayfieldH();
+  const pTop = ph - (GROUND_HEIGHT + playerY + PLAYER_HEIGHT);
+  const pBottom = ph - (GROUND_HEIGHT + playerY);
   const pickupPad = scale(8);
   const oLeft = p.x - pickupPad;
   const oRight = p.x + p.size + pickupPad;
@@ -500,10 +550,11 @@ function collidesPower(
 }
 
 function collidesCoin(playerY: number, playerX: number, c: CoinItem): boolean {
+  const ph = gamePlayfieldH();
   const pLeft = playerX;
   const pRight = playerX + PLAYER_WIDTH;
-  const pTop = SCREEN_HEIGHT - (GROUND_HEIGHT + playerY + PLAYER_HEIGHT);
-  const pBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + playerY);
+  const pTop = ph - (GROUND_HEIGHT + playerY + PLAYER_HEIGHT);
+  const pBottom = ph - (GROUND_HEIGHT + playerY);
   const pickupPad = scale(8);
   const oLeft = c.x - pickupPad;
   const oRight = c.x + c.size + pickupPad;
@@ -512,8 +563,65 @@ function collidesCoin(playerY: number, playerX: number, c: CoinItem): boolean {
   return oLeft < pRight && oRight > pLeft && oTop < pBottom && oBottom > pTop;
 }
 
+/** Shared by world pickups (single implementation of power effects). */
+function applyPowerUpKindEffect(
+  s: SimState,
+  type: PowerUpKind,
+  nowTs: number,
+  pressure: ReturnType<typeof resolveRunPressure>,
+  scheduleCoinPersist: () => void,
+): void {
+  const d = POWERUP_DEFS[type];
+  s.pickupFlashKind = type;
+  s.pickupFlashToken += 1;
+  switch (type) {
+    case "shield":
+      s.shieldUntil = nowTs + d.durationMs;
+      break;
+    case "multiplier":
+      s.x2Until = nowTs + d.durationMs;
+      break;
+    case "magnet":
+      s.magnetUntil = nowTs + d.durationMs;
+      break;
+    case "boost":
+      s.boostUntil = nowTs + d.durationMs;
+      break;
+    case "slowTime":
+      s.slowTimeUntil = nowTs + d.durationMs;
+      break;
+    case "ghostPhase":
+      s.ghostPhaseUntil = nowTs + d.durationMs;
+      break;
+    case "coinBurst": {
+      const burst = 12 + Math.floor(Math.random() * 9);
+      s.coinsCollected += burst;
+      s.coinsEarnedThisRun += burst;
+      scheduleCoinPersist();
+      s.pickupScore += Math.floor(
+        (160 + Math.floor(Math.random() * 140)) *
+          pressure.feverScoreMult *
+          (nowTs < s.x2Until ? 2 : 1),
+      );
+      break;
+    }
+    default:
+      break;
+  }
+  getAudioManager().playPowerup();
+  if (!s.feverActive) {
+    s.feverMeter = feverMeterAddClamped(
+      s.feverMeter,
+      FEVER_METER_PER_POWER_PICKUP,
+    );
+  }
+}
+
 const HITBOX_OVERLAY_ENABLED =
-  DEBUG_DRAW_COLLISION_BOXES || DEBUG_DRAW_VISUAL_BOUNDS;
+  DEBUG_DRAW_PLAYER_HITBOX ||
+  DEBUG_DRAW_OBSTACLE_HITBOX ||
+  DEBUG_DRAW_COLLISION_BOXES ||
+  DEBUG_DRAW_VISUAL_BOUNDS;
 
 /** Join-based sig avoids O(n²) string growth when many coins/obstacles are visible. */
 function visibleEntitySig<T extends { id: number }>(
@@ -524,6 +632,18 @@ function visibleEntitySig<T extends { id: number }>(
   const parts = new Array<string>(n + 1);
   parts[0] = String(n);
   for (let i = 0; i < n; i++) parts[i + 1] = String(items[i].id);
+  return parts.join(":");
+}
+
+/** Powers: include kind + size so render specs refresh if pooled rows change without id churn. */
+function visiblePowerSig(items: readonly PowerUpItem[], n: number): string {
+  if (n === 0) return "";
+  const parts = new Array<string>(n + 1);
+  parts[0] = String(n);
+  for (let i = 0; i < n; i++) {
+    const p = items[i];
+    parts[i + 1] = `${p.id}:${p.type}:${p.size}`;
+  }
   return parts.join(":");
 }
 
@@ -697,8 +817,37 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
   /** User pause (separate from shop modal) — ref stays in sync for `applyPauseFromSources`. */
   const runPausedRef = useRef(false);
 
+  /** Far-from-hero drag: start location + whether we already showed for this gesture. */
+  const farDragHintTouchRef = useRef<{
+    sx: number;
+    sy: number;
+    shown: boolean;
+  } | null>(null);
+  const [heroHintVisible, setHeroHintVisible] = useState(false);
+  const [heroHintKey, setHeroHintKey] = useState(0);
+
   const heroLeftSV = useSharedValue(PLAYER_X);
   const heroBottomSV = useSharedValue(GROUND_HEIGHT);
+
+  const heroFxTimeSV = useSharedValue(0);
+  const heroFxShieldSV = useSharedValue(0);
+  const heroFxMagnetSV = useSharedValue(0);
+  const heroFxBoostSV = useSharedValue(0);
+  const heroFxSlowSV = useSharedValue(0);
+  const heroFxX2SV = useSharedValue(0);
+  const heroFxGhostSV = useSharedValue(0);
+  const heroPowerFxPack = useMemo(
+    () => ({
+      time: heroFxTimeSV,
+      shield: heroFxShieldSV,
+      magnet: heroFxMagnetSV,
+      boost: heroFxBoostSV,
+      slowTime: heroFxSlowSV,
+      x2: heroFxX2SV,
+      ghost: heroFxGhostSV,
+    }),
+    [],
+  );
 
   const obsPositionsSV = useSharedValue<EntityPosMap>({});
   const coinPositionsSV = useSharedValue<EntityPosMap>({});
@@ -724,7 +873,11 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
   /** Bumped on `resetGame` so long-lived Reanimated trees restart cleanly (no carryover mid-cycle). */
   const [runSessionKey, setRunSessionKey] = useState(0);
 
-  const [runHud, setRunHud] = useState({ score: 0, distanceFloor: 0 });
+  const [runHud, setRunHud] = useState({
+    score: 0,
+    distanceFloor: 0,
+    coinsCollected: 0,
+  });
   /** Playable `gameRoot` size (inside top/side safe area) — entities / layout use this space. */
   const [gameLayout, setGameLayout] = useState<{ w: number; h: number } | null>(
     null,
@@ -732,6 +885,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
   const lastHudPushRef = useRef(0);
   const lastHudScoreRef = useRef(0);
   const lastHudDistRef = useRef(0);
+  const lastHudCoinsRef = useRef(0);
 
   const bestRunStatsRef = useRef<BestSingleRunStats>({
     distanceM: 0,
@@ -749,28 +903,32 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
     null,
   );
 
+  const clearCoinPersistTimer = useCallback(() => {
+    if (coinPersistTimerRef.current != null) {
+      clearTimeout(coinPersistTimerRef.current);
+      coinPersistTimerRef.current = null;
+    }
+  }, []);
+
   const scheduleCoinPersist = useCallback(() => {
     if (coinPersistTimerRef.current != null) {
       clearTimeout(coinPersistTimerRef.current);
     }
     coinPersistTimerRef.current = setTimeout(() => {
       coinPersistTimerRef.current = null;
-      persistSavedCoins(sim.current.coinsCollected);
+      void persistSavedCoins(sim.current.coinsCollected);
     }, 320);
   }, []);
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "background" || state === "inactive") {
-        if (coinPersistTimerRef.current != null) {
-          clearTimeout(coinPersistTimerRef.current);
-          coinPersistTimerRef.current = null;
-        }
-        persistSavedCoins(sim.current.coinsCollected);
+        clearCoinPersistTimer();
+        void persistSavedCoins(sim.current.coinsCollected);
       }
     });
     return () => sub.remove();
-  }, []);
+  }, [clearCoinPersistTimer]);
 
   useEffect(() => {
     if (gameOver) return;
@@ -798,12 +956,34 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
         if (!cancelled && rawOwned) {
           try {
             const parsed = JSON.parse(rawOwned);
-            if (Array.isArray(parsed)) sim.current.ownedSkins = parsed;
+            if (Array.isArray(parsed)) {
+              const sanitized = sanitizeOwnedSkins(parsed);
+              sim.current.ownedSkins = sanitized;
+              if (JSON.stringify(parsed) !== JSON.stringify(sanitized)) {
+                void AsyncStorage.setItem(
+                  OWNED_SKINS_KEY,
+                  JSON.stringify(sanitized),
+                );
+              }
+            }
           } catch {}
         }
-        if (!cancelled && rawCurrent) {
-          sim.current.currentSkin = rawCurrent;
-          setUiEpoch((e) => e + 1);
+        if (!cancelled) {
+          if (rawCurrent && rawCurrent.length > 0) {
+            const coerced = coerceCurrentSkinId(rawCurrent);
+            sim.current.currentSkin = coerced;
+            if (coerced !== rawCurrent) {
+              void AsyncStorage.setItem(CURRENT_SKIN_KEY, coerced);
+            }
+            setUiEpoch((e) => e + 1);
+          } else {
+            const coerced = coerceCurrentSkinId(sim.current.currentSkin);
+            if (coerced !== sim.current.currentSkin) {
+              sim.current.currentSkin = coerced;
+              void AsyncStorage.setItem(CURRENT_SKIN_KEY, coerced);
+              setUiEpoch((e) => e + 1);
+            }
+          }
         }
         const rawCoins = await AsyncStorage.getItem(SAVED_COINS_KEY);
         if (!cancelled) {
@@ -824,13 +1004,16 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
         if (!cancelled) {
           bestRunStatsRef.current = br;
           setShopBestStats(br);
-          const merged = mergeMilestoneUnlocks(
-            sim.current.ownedSkins,
-            br.distanceM,
-            br.runCoins,
+          const merged = sanitizeOwnedSkins(
+            mergeMilestoneUnlocks(
+              sim.current.ownedSkins,
+              br.distanceM,
+              br.runCoins,
+            ),
           );
-          const prevS = new Set(sim.current.ownedSkins);
-          if (merged.some((id) => !prevS.has(id))) {
+          if (
+            JSON.stringify(merged) !== JSON.stringify(sim.current.ownedSkins)
+          ) {
             sim.current.ownedSkins = merged;
             await AsyncStorage.setItem(
               OWNED_SKINS_KEY,
@@ -861,11 +1044,6 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
   }, []);
 
   useEffect(() => {
-    if (!gameOver) return;
-    getAudioManager().onGameOver();
-  }, [gameOver]);
-
-  useEffect(() => {
     if (gameOver) return;
     const a = getAudioManager();
     if (paused) {
@@ -878,6 +1056,70 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
   const applyPauseFromSources = useCallback(() => {
     sim.current.paused = sim.current.shopOpen || runPausedRef.current;
     setPaused(sim.current.paused);
+  }, []);
+
+  const dismissHeroHint = useCallback(() => setHeroHintVisible(false), []);
+
+  const showFarDragControlHint = useCallback(() => {
+    if (gameOver || paused) return;
+    if (runPausedRef.current || sim.current.shopOpen) return;
+    setHeroHintKey((k) => k + 1);
+    setHeroHintVisible(true);
+  }, [gameOver, paused]);
+
+  const onFarDragHintTouchStart = useCallback(
+    (e: { nativeEvent: { locationX: number; locationY: number } }) => {
+      if (gameOver || paused || runPausedRef.current || sim.current.shopOpen) {
+        farDragHintTouchRef.current = null;
+        return;
+      }
+      const layout = gameLayoutRef.current;
+      const lw = layout && layout.w > 0 ? layout.w : 0;
+      const lh = layout && layout.h > 0 ? layout.h : 0;
+      if (lw <= 0 || lh <= 0) {
+        farDragHintTouchRef.current = null;
+        return;
+      }
+      const { locationX, locationY } = e.nativeEvent;
+      const s = sim.current;
+      if (isTouchInsideHeroDragStart(locationX, locationY, lw, lh, s)) {
+        farDragHintTouchRef.current = null;
+        return;
+      }
+      if (
+        distanceTouchToHeroCenterPx(locationX, locationY, lw, lh, s) <
+        FAR_DRAG_HINT_MIN_DIST_FROM_HERO_PX
+      ) {
+        farDragHintTouchRef.current = null;
+        return;
+      }
+      farDragHintTouchRef.current = {
+        sx: locationX,
+        sy: locationY,
+        shown: false,
+      };
+    },
+    [gameOver, paused],
+  );
+
+  const onFarDragHintTouchMove = useCallback(
+    (e: { nativeEvent: { locationX: number; locationY: number } }) => {
+      const rec = farDragHintTouchRef.current;
+      if (!rec || rec.shown) return;
+      if (gameOver || paused || runPausedRef.current || sim.current.shopOpen)
+        return;
+      const { locationX, locationY } = e.nativeEvent;
+      const dx = locationX - rec.sx;
+      const dy = locationY - rec.sy;
+      if (Math.hypot(dx, dy) < FAR_DRAG_HINT_MOVE_PX) return;
+      rec.shown = true;
+      showFarDragControlHint();
+    },
+    [gameOver, paused, showFarDragControlHint],
+  );
+
+  const onFarDragHintTouchEnd = useCallback(() => {
+    farDragHintTouchRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -945,10 +1187,12 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
     lastWorldFxKeyRef.current = "none|0";
     setWorldFx({ dangerVisual: "none", feverActive: false });
     setZoneBanner(null);
-    setRunHud({ score: 0, distanceFloor: 0 });
+    const walletCoins = sim.current.coinsCollected;
+    setRunHud({ score: 0, distanceFloor: 0, coinsCollected: walletCoins });
     lastHudPushRef.current = 0;
     lastHudScoreRef.current = 0;
     lastHudDistRef.current = 0;
+    lastHudCoinsRef.current = walletCoins;
   }, [heroBottomSV, heroLeftSV]);
 
   useEffect(() => {
@@ -973,7 +1217,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
     }
     // Trigger brief shake when pressing
     sim.current.shakeT = 10;
-  }, [gameOver, resetGame, paused]);
+  }, [gameOver, paused]);
 
   const handleRetry = useCallback(() => {
     getAudioManager().onRunRestart();
@@ -981,22 +1225,30 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
   }, [resetGame]);
 
   const handleExitToHome = useCallback(() => {
-    persistSavedCoins(sim.current.coinsCollected);
-    resetGame();
-    onExitToHome?.();
-  }, [resetGame, onExitToHome]);
+    void (async () => {
+      clearCoinPersistTimer();
+      await persistSavedCoins(sim.current.coinsCollected);
+      resetGame();
+      onExitToHome?.();
+    })();
+  }, [clearCoinPersistTimer, resetGame, onExitToHome]);
 
   const toggleShop = useCallback(() => {
-    getAudioManager().playButtonTap();
     const wasOpen = sim.current.shopOpen;
     const next = !wasOpen;
+    // Skins shop only after the run ends (game over) or from home — not during play or pause.
+    if (next && !gameOver) return;
+    getAudioManager().playButtonTap();
     if (wasOpen && !next) {
-      persistSavedCoins(sim.current.coinsCollected);
+      void (async () => {
+        clearCoinPersistTimer();
+        await persistSavedCoins(sim.current.coinsCollected);
+      })();
     }
     sim.current.shopOpen = next;
     applyPauseFromSources();
     if (next) prepareShopRewardedAd();
-  }, [applyPauseFromSources]);
+  }, [applyPauseFromSources, clearCoinPersistTimer, gameOver]);
 
   const toggleRunPause = useCallback(() => {
     if (gameOver || sim.current.shopOpen) return;
@@ -1027,6 +1279,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
   const applyReviveAfterAd = useCallback(() => {
     const nowTs = Date.now();
     const s = sim.current;
+    s.shopOpen = false;
     s.hitGraceUntil = nowTs + 2400;
     const oa = s.obstacles;
     const obsPool = obstaclePoolRef.current;
@@ -1043,9 +1296,10 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
     oa.length = ow;
     lastFramePerfRef.current = perfNow();
     getAudioManager().onRunRestart();
+    applyPauseFromSources();
     setGameOver(false);
     setUiEpoch((e) => e + 1);
-  }, []);
+  }, [applyPauseFromSources]);
 
   const handleReviveVideo = useCallback(() => {
     if (reviveVideoBusy || !gameOver) return;
@@ -1120,6 +1374,15 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
       }
 
       if (s.paused) {
+        const np = perfNow();
+        const nowTsPaused = Date.now();
+        heroFxTimeSV.value = np * 0.004;
+        heroFxShieldSV.value = nowTsPaused < s.shieldUntil ? 1 : 0;
+        heroFxMagnetSV.value = nowTsPaused < s.magnetUntil ? 1 : 0;
+        heroFxBoostSV.value = nowTsPaused < s.boostUntil ? 1 : 0;
+        heroFxSlowSV.value = nowTsPaused < s.slowTimeUntil ? 1 : 0;
+        heroFxX2SV.value = nowTsPaused < s.x2Until ? 1 : 0;
+        heroFxGhostSV.value = nowTsPaused < s.ghostPhaseUntil ? 1 : 0;
         rafRef.current = requestAnimationFrame(loop);
         return;
       }
@@ -1135,6 +1398,9 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
       planSimulationSubsteps(simSubstepBankRef, dtMs, substepKsRef.current);
       const ks = substepKsRef.current;
       let fatalDied = false;
+
+      const gll = gameLayoutRef.current;
+      if (gll && gll.h > 0) gamePlayfieldHeightPx = gll.h;
 
       for (let _si = 0; _si < ks.length; _si++) {
         const k = ks[_si];
@@ -1256,7 +1522,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
           obsArr,
           (o) => obsPool.release(o),
           SCREEN_WIDTH,
-          SCREEN_HEIGHT,
+          gamePlayfieldH(),
           GROUND_HEIGHT,
         );
 
@@ -1276,7 +1542,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
             Math.floor((runnerInt * phaseMul) / Math.max(0.55, zObs)),
           );
           const inViewport = () =>
-            countObstaclesInPlayViewport(SCREEN_WIDTH, SCREEN_HEIGHT, obsArr);
+            countObstaclesInPlayViewport(SCREEN_WIDTH, gamePlayfieldH(), obsArr);
 
           if (inViewport() >= MAX_ON_SCREEN_OBSTACLES) {
             s.spawnCooldown = 10 + Math.random() * Math.max(8, blended * 0.22);
@@ -1422,11 +1688,11 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
         }
 
         const pwY = playerWorldYOffset(s);
+        const ph = gamePlayfieldH();
         const pLeft = s.playerX;
         const pRight = s.playerX + PLAYER_WIDTH;
-        const pTop =
-          SCREEN_HEIGHT - (GROUND_HEIGHT + pwY + PLAYER_HEIGHT);
-        const pBottom = SCREEN_HEIGHT - (GROUND_HEIGHT + pwY);
+        const pTop = ph - (GROUND_HEIGHT + pwY + PLAYER_HEIGHT);
+        const pBottom = ph - (GROUND_HEIGHT + pwY);
         const canDie = nowTs >= s.hitGraceUntil && nowTs >= s.ghostPhaseUntil;
         const scanNearMiss = s.nearMissCooldown === 0;
         const playerLane = nearestLaneIndex(s.playerX);
@@ -1491,8 +1757,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
           pu.y += effSpeed * 0.95 * k;
           if (nowTs < s.magnetUntil) {
             const px = s.playerX + PLAYER_WIDTH / 2;
-            const py =
-              SCREEN_HEIGHT - (GROUND_HEIGHT + pwY + PLAYER_HEIGHT / 2);
+            const py = ph - (GROUND_HEIGHT + pwY + PLAYER_HEIGHT / 2);
             const ox = pu.x + pu.size / 2;
             const oy = pu.y + pu.size / 2;
             const dx = px - ox;
@@ -1515,7 +1780,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
           puArr,
           (p) => powPool.release(p),
           SCREEN_WIDTH,
-          SCREEN_HEIGHT,
+          ph,
           GROUND_HEIGHT,
         );
 
@@ -1530,8 +1795,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
           co.y += effSpeed * k;
           if (nowTs < s.magnetUntil) {
             const px = s.playerX + PLAYER_WIDTH / 2;
-            const py =
-              SCREEN_HEIGHT - (GROUND_HEIGHT + pwY + PLAYER_HEIGHT / 2);
+            const py = ph - (GROUND_HEIGHT + pwY + PLAYER_HEIGHT / 2);
             const ox = co.x + co.size / 2;
             const oy = co.y + co.size / 2;
             const dx = px - ox;
@@ -1553,7 +1817,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
           coinArr,
           (c) => cPoolMain.release(c),
           SCREEN_WIDTH,
-          SCREEN_HEIGHT,
+          ph,
           GROUND_HEIGHT,
         );
 
@@ -1657,50 +1921,8 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
           const pu = s.powerUps[pi];
           if (collidesPower(pwY, s.playerX, pu)) {
             const { type } = pu;
-            const d = POWERUP_DEFS[type];
-            s.pickupFlashKind = type;
-            s.pickupFlashToken += 1;
-            switch (type) {
-              case "shield":
-                s.shieldUntil = nowTs + d.durationMs;
-                break;
-              case "multiplier":
-                s.x2Until = nowTs + d.durationMs;
-                break;
-              case "magnet":
-                s.magnetUntil = nowTs + d.durationMs;
-                break;
-              case "boost":
-                s.boostUntil = nowTs + d.durationMs;
-                break;
-              case "slowTime":
-                s.slowTimeUntil = nowTs + d.durationMs;
-                break;
-              case "ghostPhase":
-                s.ghostPhaseUntil = nowTs + d.durationMs;
-                break;
-              case "coinBurst": {
-                const burst = 12 + Math.floor(Math.random() * 9);
-                s.coinsCollected += burst;
-                s.coinsEarnedThisRun += burst;
-                scheduleCoinPersist();
-                s.pickupScore += Math.floor(
-                  (160 + Math.floor(Math.random() * 140)) *
-                    pressure.feverScoreMult *
-                    (nowTs < s.x2Until ? 2 : 1),
-                );
-                break;
-              }
-              default:
-                break;
-            }
-            getAudioManager().playPowerup();
-            if (!s.feverActive) {
-              s.feverMeter = feverMeterAddClamped(
-                s.feverMeter,
-                FEVER_METER_PER_POWER_PICKUP,
-              );
-            }
+            applyPowerUpKindEffect(s, type, nowTs, pressure, scheduleCoinPersist);
+            setUiEpoch((e) => e + 1);
             powPool.release(pu);
             continue;
           }
@@ -1789,13 +2011,10 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
         lastMilestoneCheckRef.current = { d: dChk, c: cChk };
         const distBest = Math.max(bestRunStatsRef.current.distanceM, dChk);
         const coinsBest = Math.max(bestRunStatsRef.current.runCoins, cChk);
-        const merged = mergeMilestoneUnlocks(
-          s.ownedSkins,
-          distBest,
-          coinsBest,
+        const merged = sanitizeOwnedSkins(
+          mergeMilestoneUnlocks(s.ownedSkins, distBest, coinsBest),
         );
-        const prevS = new Set(s.ownedSkins);
-        if (merged.some((id) => !prevS.has(id))) {
+        if (JSON.stringify(merged) !== JSON.stringify(s.ownedSkins)) {
           s.ownedSkins = merged;
           void AsyncStorage.setItem(
             OWNED_SKINS_KEY,
@@ -1814,7 +2033,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
 
       const vis = fillRenderVisible(
         SCREEN_WIDTH,
-        SCREEN_HEIGHT,
+        gamePlayfieldH(),
         s.obstacles,
         s.coins,
         s.powerUps,
@@ -1864,7 +2083,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
         coinSigRef.current = cs;
         setCoinRenderSpecs(buildCoinRenderSpecs(s._visCoins, s._visCoinsN));
       }
-      const ps = visibleEntitySig(s._visPow, s._visPowN);
+      const ps = visiblePowerSig(s._visPow, s._visPowN);
       if (ps !== powSigRef.current) {
         powSigRef.current = ps;
         setPowerRenderSpecs(buildPowerRenderSpecs(s._visPow, s._visPowN));
@@ -1875,14 +2094,28 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
         (s.shakeT > 0 ? Math.sin(s.shakePhase) * (s.shakeT * 0.4) : 0);
       heroBottomSV.value = GROUND_HEIGHT + playerWorldYOffset(s);
 
+      heroFxTimeSV.value = nowPerf * 0.004;
+      heroFxShieldSV.value = nowTs < s.shieldUntil ? 1 : 0;
+      heroFxMagnetSV.value = nowTs < s.magnetUntil ? 1 : 0;
+      heroFxBoostSV.value = nowTs < s.boostUntil ? 1 : 0;
+      heroFxSlowSV.value = nowTs < s.slowTimeUntil ? 1 : 0;
+      heroFxX2SV.value = nowTs < s.x2Until ? 1 : 0;
+      heroFxGhostSV.value = nowTs < s.ghostPhaseUntil ? 1 : 0;
+
       if (nowPerf - lastHudPushRef.current >= HUD_SCORE_THROTTLE_MS) {
         lastHudPushRef.current = nowPerf;
         const sc = s.score;
         const df = Math.floor(s.runDistance);
-        if (sc !== lastHudScoreRef.current || df !== lastHudDistRef.current) {
+        const cc = s.coinsCollected;
+        if (
+          sc !== lastHudScoreRef.current ||
+          df !== lastHudDistRef.current ||
+          cc !== lastHudCoinsRef.current
+        ) {
           lastHudScoreRef.current = sc;
           lastHudDistRef.current = df;
-          setRunHud({ score: sc, distanceFloor: df });
+          lastHudCoinsRef.current = cc;
+          setRunHud({ score: sc, distanceFloor: df, coinsCollected: cc });
         }
       }
 
@@ -1916,7 +2149,13 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
       }
 
       if (fatalDied) {
-        persistSavedCoins(s.coinsCollected);
+        clearCoinPersistTimer();
+        void getAudioManager()
+          .preload()
+          .then(() => {
+            getAudioManager().onGameOver();
+          });
+        void persistSavedCoins(s.coinsCollected);
         const distM = Math.floor(s.runDistance);
         const runCoinsSnap = s.coinsEarnedThisRun;
         const ownedSnap = [...s.ownedSkins];
@@ -1930,13 +2169,14 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
             await persistBestSingleRunStats(next);
             bestRunStatsRef.current = next;
             setShopBestStats(next);
-            const merged = mergeMilestoneUnlocks(
-              ownedSnap,
-              next.distanceM,
-              next.runCoins,
+            const merged = sanitizeOwnedSkins(
+              mergeMilestoneUnlocks(
+                ownedSnap,
+                next.distanceM,
+                next.runCoins,
+              ),
             );
-            const prevS = new Set(ownedSnap);
-            if (merged.some((id) => !prevS.has(id))) {
+            if (JSON.stringify(merged) !== JSON.stringify(ownedSnap)) {
               await AsyncStorage.setItem(
                 OWNED_SKINS_KEY,
                 JSON.stringify(merged),
@@ -1974,13 +2214,10 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
-      if (coinPersistTimerRef.current != null) {
-        clearTimeout(coinPersistTimerRef.current);
-        coinPersistTimerRef.current = null;
-      }
-      persistSavedCoins(sim.current.coinsCollected);
+      clearCoinPersistTimer();
+      void persistSavedCoins(sim.current.coinsCollected);
     };
-  }, [gameOver, scheduleCoinPersist]);
+  }, [clearCoinPersistTimer, gameOver, scheduleCoinPersist]);
 
   void uiEpoch;
 
@@ -1991,7 +2228,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
       }
       const layout = gameLayoutRef.current;
       const lw = layout && layout.w > 0 ? layout.w : SCREEN_WIDTH;
-      const lh = layout && layout.h > 0 ? layout.h : SCREEN_HEIGHT;
+      const lh = layout && layout.h > 0 ? layout.h : gamePlayfieldH();
       return isTouchInsideHeroDragStart(
         e.nativeEvent.locationX,
         e.nativeEvent.locationY,
@@ -2006,7 +2243,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
   const onResponderGrant = useCallback((e: GestureResponderEvent) => {
     const layout = gameLayoutRef.current;
     const lw = layout && layout.w > 0 ? layout.w : SCREEN_WIDTH;
-    const lh = layout && layout.h > 0 ? layout.h : SCREEN_HEIGHT;
+    const lh = layout && layout.h > 0 ? layout.h : gamePlayfieldH();
     const s0 = sim.current;
     // Cache window-relative geometry so we can prefer `pageY` (more stable near system nav areas)
     // over `locationY` (can jump to 0 on some devices when finger goes below the view).
@@ -2015,11 +2252,11 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
     });
 
     const fingerSX = touchLocationXToScreenX(e.nativeEvent.locationX, lw);
-    const fingerSY = touchLocationYToScreenY(e.nativeEvent.locationY, lh);
+    const fingerSY = touchLocationYToPlayfieldY(e.nativeEvent.locationY, lh);
     const centerSX = s0.playerX + PLAYER_WIDTH / 2;
+    const ph = gamePlayfieldH();
     const centerSY =
-      SCREEN_HEIGHT -
-      (GROUND_HEIGHT + s0.playerSteerY + s0.playerY + PLAYER_HEIGHT / 2);
+      ph - (GROUND_HEIGHT + s0.playerSteerY + s0.playerY + PLAYER_HEIGHT / 2);
     touchOffsetRef.current = fingerSX - centerSX;
     touchOffsetYRef.current = fingerSY - centerSY;
     isDraggingRef.current = true;
@@ -2029,7 +2266,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
     const desiredCenterY = fingerSY - touchOffsetYRef.current;
     s0.playerXTarget = clampPlayerLeft(desiredCenterX - PLAYER_WIDTH / 2);
     s0.playerSteerYTarget = clampPlayerSteerY(
-      SCREEN_HEIGHT -
+      ph -
         desiredCenterY -
         PLAYER_HEIGHT / 2 -
         GROUND_HEIGHT -
@@ -2042,14 +2279,14 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
     if (!isDraggingRef.current) return;
     const layout = gameLayoutRef.current;
     const lw = layout && layout.w > 0 ? layout.w : SCREEN_WIDTH;
-    const lh = layout && layout.h > 0 ? layout.h : SCREEN_HEIGHT;
+    const lh = layout && layout.h > 0 ? layout.h : gamePlayfieldH();
     const win = containerWinRef.current;
     const localX =
       win != null ? e.nativeEvent.pageX - win.x : e.nativeEvent.locationX;
     const localY =
       win != null ? e.nativeEvent.pageY - win.y : e.nativeEvent.locationY;
     const fingerSX = touchLocationXToScreenX(localX, lw);
-    const fingerSY = touchLocationYToScreenY(localY, lh);
+    const fingerSY = touchLocationYToPlayfieldY(localY, lh);
     if (lastFingerXRef.current == null || lastFingerYRef.current == null) {
       lastFingerXRef.current = fingerSX;
       lastFingerYRef.current = fingerSY;
@@ -2070,8 +2307,9 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
     const desiredCenterX = fingerSX - touchOffsetRef.current;
     const desiredCenterY = fingerSY - touchOffsetYRef.current;
     s.playerXTarget = clampPlayerLeft(desiredCenterX - PLAYER_WIDTH / 2);
+    const ph = gamePlayfieldH();
     s.playerSteerYTarget = clampPlayerSteerY(
-      SCREEN_HEIGHT -
+      ph -
         desiredCenterY -
         PLAYER_HEIGHT / 2 -
         GROUND_HEIGHT -
@@ -2094,6 +2332,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
   const onGameRootLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
     if (width <= 0 || height <= 0) return;
+    gamePlayfieldHeightPx = height;
     gameLayoutRef.current = { w: width, h: height };
     // Layout changed; drop cached window geometry (will be re-measured on next drag start).
     containerWinRef.current = null;
@@ -2101,6 +2340,16 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
       prev?.w === width && prev?.h === height ? prev : { w: width, h: height },
     );
   }, []);
+
+  const playfieldHForUi =
+    gameLayout != null && gameLayout.h > 0 ? gameLayout.h : windowH;
+
+  const heroHintBottomOffset = useMemo(
+    () =>
+      heightPixel(14) +
+      (showBannerAds ? heightPixel(8) : Math.max(insets.bottom, heightPixel(8))),
+    [showBannerAds, insets.bottom],
+  );
 
   return (
     <View style={styles.gameScreenWrapper}>
@@ -2117,6 +2366,10 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
                 containerRef.current = r;
               }}
               style={styles.container}
+              onTouchStart={onFarDragHintTouchStart}
+              onTouchMove={onFarDragHintTouchMove}
+              onTouchEnd={onFarDragHintTouchEnd}
+              onTouchCancel={onFarDragHintTouchEnd}
               onStartShouldSetResponder={onStartShouldSetHeroResponder}
               onResponderTerminationRequest={() => false}
               onResponderGrant={onResponderGrant}
@@ -2125,8 +2378,11 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
               onResponderTerminate={onResponderEnd}
             >
             <AmbientParticles density={visualTier >= 2 ? "low" : "medium"} />
-            <GameplayLaneGuide screenW={SCREEN_WIDTH} screenH={SCREEN_HEIGHT} groundH={GROUND_HEIGHT} />
-            <PowerActionButton disabled label="Power" />
+            <GameplayLaneGuide
+              screenW={SCREEN_WIDTH}
+              screenH={playfieldHForUi}
+              groundH={GROUND_HEIGHT}
+            />
             {worldFx.dangerVisual === "warn" && visualTier < 3 && (
               <View
                 pointerEvents="none"
@@ -2148,11 +2404,14 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
             <GameRunHud
               score={runHud.score}
               distanceFloor={runHud.distanceFloor}
+              coinsCollected={
+                gameOver ? sim.current.coinsCollected : runHud.coinsCollected
+              }
               gameOver={gameOver}
               shopOpen={sim.current.shopOpen}
               runPaused={runPaused}
               onToggleRunPause={toggleRunPause}
-              onOpenShop={toggleShop}
+              onOpenShop={gameOver ? toggleShop : undefined}
               onExitToHome={() => {
                 getAudioManager().playButtonTap();
                 handleExitToHome();
@@ -2183,9 +2442,10 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
               bottomSV={heroBottomSV}
               qualityTier={Math.max(2, visualTier) as VisualQualityTier}
               skinImage={heroImageForSkinId(sim.current.currentSkin)}
+              powerFx={heroPowerFxPack}
             />
             <ShopModal
-              open={sim.current.shopOpen}
+              open={sim.current.shopOpen && gameOver}
               coins={sim.current.coinsCollected}
               ownedSkins={sim.current.ownedSkins}
               currentSkin={sim.current.currentSkin}
@@ -2223,7 +2483,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
 
             {HITBOX_OVERLAY_ENABLED ? (
               <HitboxDebugOverlay
-                screenHeight={SCREEN_HEIGHT}
+                screenHeight={playfieldHForUi}
                 groundHeight={GROUND_HEIGHT}
                 playerX={sim.current.playerX}
                 playerY={playerWorldYOffset(sim.current)}
@@ -2249,6 +2509,16 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
             <PauseRibbon
               visible={runPaused && !gameOver && !sim.current.shopOpen}
             />
+
+            {heroHintVisible ? (
+              <View style={styles.heroHintLayer} pointerEvents="none">
+                <HeroControlHintCallout
+                  key={heroHintKey}
+                  bottomOffset={heroHintBottomOffset}
+                  onDismiss={dismissHeroHint}
+                />
+              </View>
+            ) : null}
 
             {gameOver ? (
               <GameOverOverlay
@@ -2313,7 +2583,31 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void getAudioManager().preload();
+    void (async () => {
+      await getAudioManager().preload();
+      await ensureBackgroundMusicLoaded();
+    })();
+    return () => {
+      releaseGlobalMusic();
+      getAudioManager().dispose();
+    };
+  }, []);
+
+  useEffect(() => {
+    void setBackgroundMusicRoute(showHome);
+  }, [showHome]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      // Only `background` — `inactive` fires during iOS launch/splash and would mute BGM forever
+      // if we blocked route setup (see `globalMusicManager.ts`).
+      if (state === "background") {
+        pauseBackgroundMusic();
+      } else if (state === "active") {
+        resumeBackgroundMusic();
+      }
+    });
+    return () => sub.remove();
   }, []);
 
   useEffect(() => {
@@ -2330,27 +2624,25 @@ export default function App() {
         const n = raw != null ? parseInt(raw, 10) : 0;
         setHomeShopCoins(Number.isNaN(n) ? 0 : Math.max(0, n));
         setHomeBestRunStats(br);
-        let owned: string[] = ["classic"];
+        let parsedOwned: string[] = ["classic"];
         if (rawOwned) {
           try {
             const parsed = JSON.parse(rawOwned);
-            if (Array.isArray(parsed)) owned = parsed;
+            if (Array.isArray(parsed)) parsedOwned = parsed;
           } catch {
             /* ignore */
           }
         }
-        const merged = mergeMilestoneUnlocks(
-          owned,
-          br.distanceM,
-          br.runCoins,
+        const owned = sanitizeOwnedSkins(parsedOwned);
+        const merged = sanitizeOwnedSkins(
+          mergeMilestoneUnlocks(owned, br.distanceM, br.runCoins),
         );
-        const prevS = new Set(owned);
-        if (merged.some((id) => !prevS.has(id))) {
+        setHomeOwnedSkins(merged);
+        if (JSON.stringify(merged) !== JSON.stringify(parsedOwned)) {
           await AsyncStorage.setItem(
             OWNED_SKINS_KEY,
             JSON.stringify(merged),
           ).catch(() => {});
-          setHomeOwnedSkins(merged);
         }
       } catch {
         /* ignore */
@@ -2371,29 +2663,33 @@ export default function App() {
           AsyncStorage.getItem(SAVED_COINS_KEY),
           loadBestSingleRunStats(),
         ]);
-        let owned: string[] = ["classic"];
+        let parsedOwned: string[] = ["classic"];
         if (rawOwned) {
           try {
             const parsed = JSON.parse(rawOwned);
-            if (Array.isArray(parsed)) owned = parsed;
+            if (Array.isArray(parsed)) parsedOwned = parsed;
           } catch {
             /* ignore */
           }
         }
-        const merged = mergeMilestoneUnlocks(
-          owned,
-          br.distanceM,
-          br.runCoins,
+        const owned = sanitizeOwnedSkins(parsedOwned);
+        const merged = sanitizeOwnedSkins(
+          mergeMilestoneUnlocks(owned, br.distanceM, br.runCoins),
         );
-        const prevS = new Set(owned);
-        if (merged.some((id) => !prevS.has(id))) {
+        if (JSON.stringify(merged) !== JSON.stringify(parsedOwned)) {
           await AsyncStorage.setItem(
             OWNED_SKINS_KEY,
             JSON.stringify(merged),
           ).catch(() => {});
         }
-        const current =
-          rawCurrent && rawCurrent.length > 0 ? rawCurrent : "classic";
+        const current = coerceCurrentSkinId(
+          rawCurrent && rawCurrent.length > 0 ? rawCurrent : undefined,
+        );
+        if (current !== rawCurrent) {
+          await AsyncStorage.setItem(CURRENT_SKIN_KEY, current).catch(
+            () => {},
+          );
+        }
         const coinsParsed = rawCoins != null ? parseInt(rawCoins, 10) : 0;
         setHomeOwnedSkins(merged);
         setHomeCurrentSkin(current);
@@ -2588,6 +2884,11 @@ const styles = StyleSheet.create({
   },
   fxWashFever: {
     backgroundColor: "rgba(236,72,153,0.06)",
+  },
+  heroHintLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 26,
+    pointerEvents: "none",
   },
   zoneBannerWrap: {
     position: "absolute",

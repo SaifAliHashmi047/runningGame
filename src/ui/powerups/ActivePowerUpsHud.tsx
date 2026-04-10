@@ -5,7 +5,6 @@ import { colors } from "../home/theme";
 import type { PowerUpKind } from "../../game/powers";
 import { defFor, POWERUP_DEFS } from "../../game/powers";
 import PowerUpIcon from "./PowerUpIcon";
-import PowerTimerRing from "./PowerTimerRing";
 
 export type ActivePowerSlot = {
   kind: PowerUpKind;
@@ -75,26 +74,26 @@ function ActivePowerUpsHudInner(props: ActivePowerUpsHudProps) {
 
   const compact = width < 380;
   const cardSize = compact ? 46 : 52;
-  const ringSize = cardSize + 10;
-  const iconSize = Math.round(cardSize * 0.65);
+  const iconSize = Math.round(cardSize * 0.72);
+  const barW = cardSize + scale(4);
 
   return (
     <View style={styles.row} pointerEvents="none">
       {slots.map((s) => {
         const def = defFor(s.kind);
         return (
-          <View key={s.kind} style={[styles.card, { width: ringSize, minHeight: ringSize + heightPixel(18) }]}>
-            <View style={styles.ringWrap}>
-              <PowerTimerRing
-                size={ringSize}
-                progress={s.remaining01}
-                trackColor="rgba(255,255,255,0.22)"
-                accentColor={def.ring}
-                strokeWidth={scale(2.5)}
+          <View key={s.kind} style={[styles.card, { width: barW }]}>
+            <PowerUpIcon kind={s.kind} size={iconSize} />
+            <View style={[styles.barTrack, { width: barW }]}>
+              <View
+                style={[
+                  styles.barFill,
+                  {
+                    width: `${Math.round(s.remaining01 * 1000) / 10}%`,
+                    backgroundColor: def.accent,
+                  },
+                ]}
               />
-              <View style={[styles.iconCenter, { width: ringSize, height: ringSize }]}>
-                <PowerUpIcon kind={s.kind} size={iconSize} />
-              </View>
             </View>
             <Text style={styles.timerText} numberOfLines={1}>
               {Math.max(0, Math.ceil((s.endsAt - now) / 1000))}s
@@ -108,8 +107,8 @@ function ActivePowerUpsHudInner(props: ActivePowerUpsHudProps) {
 
 export default memo(ActivePowerUpsHudInner);
 
-/** Clears `GameRunHud` score block + side chips on the top-right (was overlapping timers). */
-const POWER_HUD_TOP = heightPixel(88);
+/** Clears `GameRunHud` score block (incl. coins) + side chips on the top-right. */
+const POWER_HUD_TOP = heightPixel(122);
 
 const styles = StyleSheet.create({
   row: {
@@ -127,17 +126,16 @@ const styles = StyleSheet.create({
   card: {
     alignItems: "center",
   },
-  ringWrap: {
-    position: "relative",
-    alignItems: "center",
-    justifyContent: "center",
+  barTrack: {
+    marginTop: heightPixel(4),
+    height: heightPixel(3),
+    borderRadius: heightPixel(2),
+    backgroundColor: "rgba(255,255,255,0.18)",
+    overflow: "hidden",
   },
-  iconCenter: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    alignItems: "center",
-    justifyContent: "center",
+  barFill: {
+    height: "100%",
+    borderRadius: heightPixel(2),
   },
   timerText: {
     marginTop: heightPixel(2),

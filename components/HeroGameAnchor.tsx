@@ -1,8 +1,13 @@
 import React, { memo } from "react";
+import { View } from "react-native";
 import Animated, { useAnimatedStyle, type SharedValue } from "react-native-reanimated";
 import type { ImageSourcePropType } from "react-native";
 import type { VisualQualityTier } from "../src/game/performanceConfig";
 import HeroHoverShip from "./HeroHoverShip";
+import HeroPowerEffects, {
+  HeroGhostPowerTint,
+  type HeroPowerFxSharedValues,
+} from "./HeroPowerEffects";
 
 type Props = {
   width: number;
@@ -11,6 +16,8 @@ type Props = {
   bottomSV: SharedValue<number>;
   qualityTier: VisualQualityTier;
   skinImage?: ImageSourcePropType;
+  /** Timed power visuals (updated from the game loop). */
+  powerFx: HeroPowerFxSharedValues;
   children?: React.ReactNode;
 };
 
@@ -25,6 +32,7 @@ function HeroGameAnchorInner({
   bottomSV,
   qualityTier,
   skinImage,
+  powerFx,
   children,
 }: Props) {
   const posStyle = useAnimatedStyle(() => ({
@@ -37,7 +45,11 @@ function HeroGameAnchorInner({
 
   return (
     <Animated.View pointerEvents="none" style={posStyle}>
-      <HeroHoverShip width={width} height={height} qualityTier={qualityTier} skinImage={skinImage} />
+      <HeroPowerEffects width={width} height={height} fx={powerFx} />
+      <View style={{ width, height, zIndex: 1 }}>
+        <HeroHoverShip width={width} height={height} qualityTier={qualityTier} skinImage={skinImage} />
+      </View>
+      <HeroGhostPowerTint width={width} height={height} fx={powerFx} />
       {children}
     </Animated.View>
   );

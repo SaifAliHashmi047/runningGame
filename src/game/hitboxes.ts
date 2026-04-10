@@ -1,6 +1,8 @@
 import type { ObstacleVisual } from "./types";
 import {
   DEBUG_DRAW_COLLISION_BOXES,
+  DEBUG_DRAW_OBSTACLE_HITBOX,
+  DEBUG_DRAW_PLAYER_HITBOX,
   DEBUG_DRAW_VISUAL_BOUNDS,
   MIN_COLLISION_DIMENSION_PX,
   OBSTACLE_HITBOX_INSETS,
@@ -12,7 +14,12 @@ import {
 export type { ObstacleHitboxInsets };
 
 /** Re-export debug flags for UI overlays. */
-export { DEBUG_DRAW_COLLISION_BOXES, DEBUG_DRAW_VISUAL_BOUNDS };
+export {
+  DEBUG_DRAW_COLLISION_BOXES,
+  DEBUG_DRAW_OBSTACLE_HITBOX,
+  DEBUG_DRAW_PLAYER_HITBOX,
+  DEBUG_DRAW_VISUAL_BOUNDS,
+};
 
 export type ObstacleSpawnTypeForHitbox = "block" | "fast" | "wide" | "zigzag";
 
@@ -113,6 +120,7 @@ export function obstacleVisualAabb(obs: ObstacleHitboxInput): {
 
 /**
  * Player collision in screen coordinates (matches `collides` in App: y increases downward).
+ * Returns a square that fully contains the inset hero layout rect (same box as `HeroHoverShip`).
  */
 export function playerCollisionAabb(input: {
   playerX: number;
@@ -134,15 +142,33 @@ export function playerCollisionAabb(input: {
   if (right <= left || bottom <= top) {
     const cx = (playerX + playerWidth / 2) | 0;
     const cy = (top + bottom) / 2;
+    const half = MIN_COLLISION_DIMENSION_PX / 2;
     return {
-      left: cx - MIN_COLLISION_DIMENSION_PX / 2,
-      right: cx + MIN_COLLISION_DIMENSION_PX / 2,
-      top: cy - MIN_COLLISION_DIMENSION_PX / 2,
-      bottom: cy + MIN_COLLISION_DIMENSION_PX / 2,
+      left: cx - half,
+      right: cx + half,
+      top: cy - half,
+      bottom: cy + half,
     };
   }
 
-  return { left, right, top, bottom };
+  // Smallest square that **contains** the inset rect (hero SVG fills width×height).
+  // Using max(side) keeps the ship art inside the collision square; min(side) would clip past the PNG.
+  const innerW = right - left;
+  const innerH = bottom - top;
+  const side = Math.max(
+    MIN_COLLISION_DIMENSION_PX,
+    Math.max(innerW, innerH),
+  );
+  const cx = (left + right) * 0.5;
+  const cy = (top + bottom) * 0.5;
+  const sqLeft = Math.round(cx - side * 0.5);
+  const sqTop = Math.round(cy - side * 0.5);
+  return {
+    left: sqLeft,
+    right: sqLeft + side,
+    top: sqTop,
+    bottom: sqTop + side,
+  };
 }
 
 export function aabbOverlap(

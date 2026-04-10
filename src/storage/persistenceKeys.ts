@@ -10,3 +10,5 @@ export const SHOP_VIDEO_REWARD_LAST_CLAIM_MS_KEY =
 /** JSON number[] — timestamps (ms) of coin rewarded ads in the current 8h window (max 3). */
 export const SHOP_VIDEO_REWARD_CLAIMS_MS_KEY =
   "@stackRunner/shopVideoRewardClaimsMs";
+/** `"1"` = background music on, `"0"` = off (see `GlobalMusicManager`). */
+export const MUSIC_ENABLED_KEY = "@stackRunner/musicEnabled";

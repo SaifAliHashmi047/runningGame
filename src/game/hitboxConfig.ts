@@ -26,16 +26,33 @@ export const OBSTACLE_HITBOX_INSETS: Record<ObstacleVisual, ObstacleHitboxInsets
   aeroBomb: { top: 4, bottom: 5, left: 6, right: 6 },
 };
 
-/** Ship collision vs obstacles — lower values = larger (more forgiving) hitbox. */
+/**
+ * Ship collision vs obstacles — insets shrink the **layout** rect (same as the hero
+ * `width`/`height` passed to `HeroHoverShip`). Use 0 so the hit square wraps the full PNG/SVG.
+ * Collision is the smallest **square containing** that rect (centered), so the art stays inside it.
+ */
 export const PLAYER_HITBOX_INSETS: ObstacleHitboxInsets = {
-  top: 4,
-  bottom: 6,
-  left: 5,
-  right: 5,
+  top: 0,
+  bottom: 0,
+  left: 0,
+  right: 0,
 };
 
 export const MIN_COLLISION_DIMENSION_PX = 4;
 
-/** Set `true` while tuning to draw collision (green) and optional visual (cyan) bounds. */
+/** Hitbox outlines only in dev builds (`__DEV__`); release builds ship with overlays off. */
+const DEBUG_HITBOX_OVERLAY =
+  typeof __DEV__ !== "undefined" && __DEV__;
+
+/** Pink outline for the hero collision square. */
+export const DEBUG_DRAW_PLAYER_HITBOX = DEBUG_HITBOX_OVERLAY;
+
+/**
+ * Draw each obstacle’s **collision** AABB (same rects as `collides()` / `obstacleCollisionRect`).
+ * Uses playfield coords — stays aligned with `HitboxDebugOverlay`’s `screenHeight` prop.
+ */
+export const DEBUG_DRAW_OBSTACLE_HITBOX = DEBUG_HITBOX_OVERLAY;
+
+/** Legacy: obstacle collision (green) — prefer `DEBUG_DRAW_OBSTACLE_HITBOX` (sky blue). */
 export const DEBUG_DRAW_COLLISION_BOXES = false;
 export const DEBUG_DRAW_VISUAL_BOUNDS = false;
