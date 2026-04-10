@@ -1,4 +1,4 @@
-# StackHouse — release R8 / ProGuard rules (RN 0.84 + native libs)
+# The Galaxy Runner — release R8 / ProGuard rules (RN 0.84 + native libs)
 
 # React Native — keep JNI / bridge surface
 -keep,allowobfuscation @interface com.facebook.proguard.annotations.DoNotStrip

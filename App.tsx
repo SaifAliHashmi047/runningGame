@@ -46,6 +46,7 @@ import {
   skinMilestoneSatisfied,
   type BestSingleRunStats,
 } from "./src/game/milestoneUnlock";
+import { useTiltSteeringControl } from "./src/game/useTiltSteeringControl";
 import HomeScreen from "./src/screens/HomeScreen";
 import {
   routeEnterGame,
@@ -73,6 +74,7 @@ import { OBSTACLE_TEXTURE_SOURCES } from "./src/assets/obstacles";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   CURRENT_SKIN_KEY,
+  GYRO_STEERING_ENABLED_KEY,
   HIGH_SCORE_KEY,
   OWNED_SKINS_KEY,
   SAVED_COINS_KEY,
@@ -256,6 +258,11 @@ const PLAYER_X = LANE_GEOM.playerLeftFromLane(PLAYER_START_LANE);
 const FINGER_DEAD_ZONE_PX = 1.15;
 const HERO_FOLLOW_LERP = 0.32;
 const HERO_MAX_STEP_PER_FRAME = scale(38);
+
+/** Tilt steering (rotation vector + optional gravity fallback) lives in `useTiltSteeringControl`. */
+/** Snappier follow while tilting — touch drag still uses `HERO_FOLLOW_LERP`. */
+const TILT_HERO_FOLLOW_LERP = 0.58;
+const TILT_HERO_MAX_STEP_MULT = 1.42;
 
 /** Top of usable playfield (screen Y from top) — keep hero AABB below HUD chrome. */
 const GAMEPLAY_TOP_INSET = heightPixel(96);
@@ -754,9 +761,15 @@ type GameScreenProps = {
   onExitToHome?: () => void;
   /** Anchored banner (same unit as home); keep off until splash completes. */
   showBannerAds?: boolean;
+  /** When true, tilt to steer (rotation vector + gravity fallback); when false, drag the ship. */
+  gyroSteeringEnabled?: boolean;
 };
 
-function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
+function GameScreen({
+  onExitToHome,
+  showBannerAds = false,
+  gyroSteeringEnabled = false,
+}: GameScreenProps) {
   const insets = useSafeAreaInsets();
   const { width: windowW, height: windowH } = useWindowDimensions();
   const gameAdReserve =
@@ -872,6 +885,44 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
 
   /** Bumped on `resetGame` so long-lived Reanimated trees restart cleanly (no carryover mid-cycle). */
   const [runSessionKey, setRunSessionKey] = useState(0);
+
+  const gyroSteeringEnabledRef = useRef(gyroSteeringEnabled);
+  gyroSteeringEnabledRef.current = gyroSteeringEnabled;
+  const gameOverRef = useRef(gameOver);
+  gameOverRef.current = gameOver;
+
+  const applyTiltSteerDelta = useCallback((dx: number, dy: number) => {
+    if (!gyroSteeringEnabledRef.current) return;
+    if (isDraggingRef.current) return;
+    if (gameOverRef.current) return;
+    if (runPausedRef.current) return;
+    const s = sim.current;
+    if (s.paused || s.shopOpen) return;
+    s.playerXTarget = clampPlayerLeft(s.playerXTarget + dx);
+    s.playerSteerYTarget = clampPlayerSteerY(
+      s.playerSteerYTarget + dy,
+      s.playerY,
+    );
+  }, []);
+
+  const [tiltHardwareEpoch, setTiltHardwareEpoch] = useState(0);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setTiltHardwareEpoch(1));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const { recenter: tiltRecenter, tiltControlActive } = useTiltSteeringControl({
+    enabled: gyroSteeringEnabled,
+    gameOver,
+    runSessionKey,
+    hardwareEpoch: tiltHardwareEpoch,
+    onSteerDelta: applyTiltSteerDelta,
+  });
+
+  const tiltSteeringActiveRef = useRef(false);
+  useEffect(() => {
+    tiltSteeringActiveRef.current = tiltControlActive;
+  }, [tiltControlActive]);
 
   const [runHud, setRunHud] = useState({
     score: 0,
@@ -1460,10 +1511,17 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
           s.velocity = 0;
         }
 
+        const tiltFollow =
+          tiltSteeringActiveRef.current && !isDraggingRef.current;
+        const followLerp = tiltFollow ? TILT_HERO_FOLLOW_LERP : HERO_FOLLOW_LERP;
+        const t = 1 - Math.pow(1 - followLerp, k);
+        const maxStep =
+          HERO_MAX_STEP_PER_FRAME *
+          k *
+          (tiltFollow ? TILT_HERO_MAX_STEP_MULT : 1);
+
         const desiredLeft = clampPlayerLeft(s.playerXTarget);
-        const t = 1 - Math.pow(1 - HERO_FOLLOW_LERP, k);
         let nextPX = s.playerX + (desiredLeft - s.playerX) * t;
-        const maxStep = HERO_MAX_STEP_PER_FRAME * k;
         const step = nextPX - s.playerX;
         if (Math.abs(step) > maxStep) {
           nextPX = s.playerX + Math.sign(step) * maxStep;
@@ -1471,14 +1529,14 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
         s.playerX = clampPlayerLeft(nextPX);
         if (
           !isDraggingRef.current &&
+          !tiltFollow &&
           Math.abs(s.playerXTarget - s.playerX) < 0.4
         ) {
           s.playerXTarget = s.playerX;
         }
 
         const desiredSteer = clampPlayerSteerY(s.playerSteerYTarget, s.playerY);
-        let nextSteer =
-          s.playerSteerY + (desiredSteer - s.playerSteerY) * t;
+        let nextSteer = s.playerSteerY + (desiredSteer - s.playerSteerY) * t;
         const steerStep = nextSteer - s.playerSteerY;
         if (Math.abs(steerStep) > maxStep) {
           nextSteer = s.playerSteerY + Math.sign(steerStep) * maxStep;
@@ -1486,6 +1544,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
         s.playerSteerY = clampPlayerSteerY(nextSteer, s.playerY);
         if (
           !isDraggingRef.current &&
+          !tiltFollow &&
           Math.abs(s.playerSteerYTarget - s.playerSteerY) < 0.4
         ) {
           s.playerSteerYTarget = s.playerSteerY;
@@ -2223,6 +2282,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
 
   const onStartShouldSetHeroResponder = useCallback(
     (e: GestureResponderEvent) => {
+      if (tiltControlActive) return false;
       if (gameOver || paused || sim.current.shopOpen || runPausedRef.current) {
         return false;
       }
@@ -2237,7 +2297,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
         sim.current,
       );
     },
-    [gameOver, paused],
+    [gameOver, paused, tiltControlActive],
   );
 
   const onResponderGrant = useCallback((e: GestureResponderEvent) => {
@@ -2412,6 +2472,11 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
               runPaused={runPaused}
               onToggleRunPause={toggleRunPause}
               onOpenShop={gameOver ? toggleShop : undefined}
+              showTiltRecenter={tiltControlActive}
+              onTiltRecenter={() => {
+                getAudioManager().playButtonTap();
+                tiltRecenter();
+              }}
               onExitToHome={() => {
                 getAudioManager().playButtonTap();
                 handleExitToHome();
@@ -2565,6 +2630,7 @@ function GameScreen({ onExitToHome, showBannerAds = false }: GameScreenProps) {
 
 export default function App() {
   const [showHome, setShowHome] = useState(true);
+  const [gyroSteeringEnabled, setGyroSteeringEnabled] = useState(false);
   const [splashDismissed, setSplashDismissed] = useState(false);
   const [homeShopOpen, setHomeShopOpen] = useState(false);
   const [homeShopCoins, setHomeShopCoins] = useState(0);
@@ -2580,6 +2646,24 @@ export default function App() {
     if (DEV_GRANT_COINS_ON_LAUNCH > 0) {
       persistSavedCoins(DEV_GRANT_COINS_ON_LAUNCH);
     }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void AsyncStorage.getItem(GYRO_STEERING_ENABLED_KEY).then((raw) => {
+      if (!cancelled && raw === "1") setGyroSteeringEnabled(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleGyroSteeringChange = useCallback((enabled: boolean) => {
+    setGyroSteeringEnabled(enabled);
+    void AsyncStorage.setItem(
+      GYRO_STEERING_ENABLED_KEY,
+      enabled ? "1" : "0",
+    ).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -2787,6 +2871,8 @@ export default function App() {
             <HomeScreen
               coins={homeShopCoins}
               showBannerAds
+              gyroSteeringEnabled={gyroSteeringEnabled}
+              onGyroSteeringChange={handleGyroSteeringChange}
               onPlay={() => {
                 getAudioManager().playButtonTap();
                 setShowHome(false);
@@ -2821,6 +2907,7 @@ export default function App() {
           >
             <GameScreen
               showBannerAds={splashDismissed}
+              gyroSteeringEnabled={gyroSteeringEnabled}
               onExitToHome={() => setShowHome(true)}
             />
           </Animated.View>

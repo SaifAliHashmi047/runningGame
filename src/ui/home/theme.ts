@@ -49,7 +49,7 @@ export const arcadeGradients = {
 };
 
 export const gameCopy = {
-  title: "STACKHOUSE",
+  title: "THE GALAXY RUNNER",
   tagline: "ARCADE RUNNER",
   introLabel: "READY TO FLY",
   introSub: "Steer through the lanes · dodge · chase the high score",

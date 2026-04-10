@@ -35,6 +35,8 @@ type Props = {
   coins?: number;
   /** When false, the anchored banner is not mounted (e.g. until splash finishes). */
   showBannerAds?: boolean;
+  gyroSteeringEnabled: boolean;
+  onGyroSteeringChange: (enabled: boolean) => void;
 };
 
 const easeOut = Easing.out(Easing.ease);
@@ -48,6 +50,8 @@ export default function HomeScreen({
   onOpenShop,
   coins = 0,
   showBannerAds = true,
+  gyroSteeringEnabled,
+  onGyroSteeringChange,
 }: Props) {
   const { height: winH, width: winW } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -296,6 +300,8 @@ export default function HomeScreen({
               visible={settingsOpen}
               musicEnabled={musicEnabled}
               onMusicChange={onMusicChange}
+              gyroSteeringEnabled={gyroSteeringEnabled}
+              onGyroSteeringChange={onGyroSteeringChange}
               onClose={() => setSettingsOpen(false)}
             />
           </View>

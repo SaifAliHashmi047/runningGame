@@ -30,6 +30,9 @@ export type GameRunHudProps = {
   runPaused?: boolean;
   onToggleRunPause?: () => void;
   onOpenShop?: () => void;
+  /** Tilt steering: reset neutral roll/pitch (or gravity baseline) to current pose. */
+  showTiltRecenter?: boolean;
+  onTiltRecenter?: () => void;
   onExitToHome?: () => void;
 };
 
@@ -113,6 +116,8 @@ function GameRunHudInner({
   runPaused = false,
   onToggleRunPause,
   onOpenShop,
+  showTiltRecenter = false,
+  onTiltRecenter,
   onExitToHome,
 }: GameRunHudProps) {
   const { width: winW } = useWindowDimensions();
@@ -159,9 +164,16 @@ function GameRunHudInner({
                 <GlassTextButton onPress={onExitToHome} label="Home" tone="neutral" />
               </View>
             ) : (
-              <GlassIconButton onPress={onToggleRunPause}>
-                {runPaused ? <Text style={styles.resumeGlyph}>▶</Text> : <PauseGlyph />}
-              </GlassIconButton>
+              <View style={styles.leftBtnCol} pointerEvents="box-none">
+                <GlassIconButton onPress={onToggleRunPause}>
+                  {runPaused ? <Text style={styles.resumeGlyph}>▶</Text> : <PauseGlyph />}
+                </GlassIconButton>
+                {showTiltRecenter && onTiltRecenter && !runPaused ? (
+                  <GlassIconButton onPress={onTiltRecenter}>
+                    <Text style={styles.recenterGlyph}>⊙</Text>
+                  </GlassIconButton>
+                ) : null}
+              </View>
             )
           ) : (
             <View style={styles.hudSidePlaceholder} />
@@ -393,6 +405,12 @@ const styles = StyleSheet.create({
     color: colors.accent,
     marginLeft: scale(2),
     fontWeight: "800",
+  },
+  recenterGlyph: {
+    fontSize: fontPixel(20),
+    color: colors.sky,
+    fontWeight: "700",
+    marginTop: -heightPixel(1),
   },
   skinsGlyph: {
     fontSize: fontPixel(18),
