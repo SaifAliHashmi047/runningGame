@@ -20,6 +20,8 @@ type Props = {
   visible: boolean;
   musicEnabled: boolean;
   onMusicChange: (enabled: boolean) => void;
+  gyroSteeringEnabled: boolean;
+  onGyroSteeringChange: (enabled: boolean) => void;
   onClose: () => void;
 };
 
@@ -27,6 +29,8 @@ export default function HomeSettingsModal({
   visible,
   musicEnabled,
   onMusicChange,
+  gyroSteeringEnabled,
+  onGyroSteeringChange,
   onClose,
 }: Props) {
   const { width: winW, height: winH } = useWindowDimensions();
@@ -89,7 +93,7 @@ export default function HomeSettingsModal({
             >
               <Text style={[styles.modalTitle, { fontSize: fontPixel(18) }]}>Settings</Text>
               <Text style={[styles.modalSub, { fontSize: fontPixel(12), marginTop: hp(4) }]}>
-                Background music (menu and gameplay)
+                Audio and how you steer the ship during a run
               </Text>
 
               <View
@@ -117,6 +121,37 @@ export default function HomeSettingsModal({
                   }}
                   trackColor={{ false: "rgba(255,255,255,0.2)", true: "rgba(56,189,248,0.55)" }}
                   thumbColor={musicEnabled ? colors.sky : colors.textTertiary}
+                  ios_backgroundColor="rgba(255,255,255,0.2)"
+                />
+              </View>
+
+              <View
+                style={[
+                  styles.row,
+                  {
+                    marginTop: hp(10),
+                    paddingVertical: hp(14),
+                    paddingHorizontal: rs(14),
+                    paddingRight: rs(12),
+                  },
+                ]}
+              >
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowLabel, { fontSize: fontPixel(14) }]}>Tilt steering</Text>
+                  <Text style={[styles.rowHint, { fontSize: fontPixel(11), marginTop: hp(4) }]}>
+                    {gyroSteeringEnabled
+                      ? "Tilt — rotation sensor (stable)"
+                      : "Manual — drag on the ship"}
+                  </Text>
+                </View>
+                <Switch
+                  value={gyroSteeringEnabled}
+                  onValueChange={(v) => {
+                    getAudioManager().playButtonTap();
+                    onGyroSteeringChange(v);
+                  }}
+                  trackColor={{ false: "rgba(255,255,255,0.2)", true: "rgba(56,189,248,0.55)" }}
+                  thumbColor={gyroSteeringEnabled ? colors.sky : colors.textTertiary}
                   ios_backgroundColor="rgba(255,255,255,0.2)"
                 />
               </View>

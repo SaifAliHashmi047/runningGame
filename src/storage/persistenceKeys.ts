@@ -12,3 +12,5 @@ export const SHOP_VIDEO_REWARD_CLAIMS_MS_KEY =
   "@stackRunner/shopVideoRewardClaimsMs";
 /** `"1"` = background music on, `"0"` = off (see `GlobalMusicManager`). */
 export const MUSIC_ENABLED_KEY = "@stackRunner/musicEnabled";
+/** `"1"` = tilt ship with gyro, `"0"` = drag to steer (see `GameScreen`). */
+export const GYRO_STEERING_ENABLED_KEY = "@stackRunner/gyroSteeringEnabled";
