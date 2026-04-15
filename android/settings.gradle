@@ -4,12 +4,16 @@ plugins { id("com.facebook.react.settings") }
 
 // AsyncStorage v3 bundles org.asyncstorage.shared_storage:storage-android in node_modules (not Maven Central).
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
     repositories {
         google()
         mavenCentral()
+
         maven {
             url = file("${rootDir}/../node_modules/@react-native-async-storage/async-storage/android/local_repo").toURI()
+        }
+
+        maven {
+            url = file("${rootDir}/../node_modules/@notifee/react-native/android/libs").toURI()
         }
     }
 }

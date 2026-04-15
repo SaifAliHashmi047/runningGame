@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  react-native-sound loads android/app/src/main/res/raw/* via getIdentifier(name, "raw", package).
+  shrinkResources cannot see those string references.
+
+  Do NOT use res/raw/keep.xml for this: React Native codegen writes its own res/raw/keep.xml for
+  bundled drawables, and that file wins the merge — audio keeps must live here (res/xml/) instead.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/bg_gameplay_loop,@raw/bg_menu_loop,@raw/bg_runner_loop,@raw/button_tap,@raw/coin_collect_1,@raw/coin_collect_2,@raw/coin_pickup,@raw/game_music,@raw/game_over,@raw/hero_dead,@raw/obstacle_explosion,@raw/obstacle_hit,@raw/powerup_collect,@raw/powerup_pickup,@raw/ship_hum_loop,@raw/ui_music,@raw/zone_speed_up" />

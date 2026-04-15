@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Platform, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
 import Animated, {
@@ -22,12 +22,24 @@ const EXIT_MS = 480;
 
 type Props = {
   onComplete: () => void;
+  /**
+   * When true, the splash will not begin its exit animation until BOTH:
+   * - the intro hold timer elapses, and
+   * - `gateReleaseToken` increments (used to wait for bundled asset warm-up).
+   */
+  waitForAssetGate?: boolean;
+  /** Bump this when critical assets/audio are ready (only used if `waitForAssetGate` is true). */
+  gateReleaseToken?: number;
 };
 
 /**
  * Premium intro: gradient + stars → logo scales in → subtle float → title → exit to home.
  */
-export default function GameSplashScreen({ onComplete }: Props) {
+export default function GameSplashScreen({
+  onComplete,
+  waitForAssetGate = false,
+  gateReleaseToken = 0,
+}: Props) {
   const { width } = useWindowDimensions();
   const logoSize = Math.min(scale(368), width * 0.82);
   const splashLogoBox = resolveLogoMarkBox(logoSize);
@@ -40,7 +52,24 @@ export default function GameSplashScreen({ onComplete }: Props) {
   const floatPhase = useSharedValue(0);
   const exit = useSharedValue(0);
 
+  const [holdDone, setHoldDone] = useState(false);
+  const [gateOpen, setGateOpen] = useState(!waitForAssetGate);
+  const exitStartedRef = useRef(false);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
+    if (!waitForAssetGate) {
+      setGateOpen(true);
+      return;
+    }
+    // Any positive bump means "ready" (also handles StrictMode remounts safely).
+    setGateOpen(gateReleaseToken > 0);
+  }, [gateReleaseToken, waitForAssetGate]);
+
+  useEffect(() => {
+    exitStartedRef.current = false;
+    setHoldDone(false);
+
     master.value = withTiming(1, {
       duration: 520,
       easing: Easing.out(Easing.cubic),
@@ -69,18 +98,29 @@ export default function GameSplashScreen({ onComplete }: Props) {
       ),
     );
 
-    const t = setTimeout(() => {
-      exit.value = withTiming(
-        1,
-        { duration: EXIT_MS, easing: Easing.inOut(Easing.cubic) },
-        (done) => {
-          if (done) runOnJS(onComplete)();
-        },
-      );
+    holdTimerRef.current = setTimeout(() => {
+      setHoldDone(true);
     }, HOLD_MS);
 
-    return () => clearTimeout(t);
-  }, [exit, floatPhase, logo, master, onComplete, stars, title]);
+    return () => {
+      if (holdTimerRef.current != null) clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    };
+  }, [floatPhase, logo, master, stars, title]);
+
+  useEffect(() => {
+    if (!holdDone || !gateOpen) return;
+    if (exitStartedRef.current) return;
+    exitStartedRef.current = true;
+
+    exit.value = withTiming(
+      1,
+      { duration: EXIT_MS, easing: Easing.inOut(Easing.cubic) },
+      (done) => {
+        if (done) runOnJS(onComplete)();
+      },
+    );
+  }, [exit, gateOpen, holdDone, onComplete]);
 
   const rootStyle = useAnimatedStyle(() => ({
     opacity: interpolate(exit.value, [0, 1], [1, 0]),

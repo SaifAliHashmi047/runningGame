@@ -1,4 +1,4 @@
-package com.stackhouse
+package com.arcadegame.game.running.topgame.galaxyrunner
 
 import android.os.Build
 import android.os.Bundle
@@ -32,3 +32,4 @@ class MainActivity : ReactActivity() {
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
 }
+

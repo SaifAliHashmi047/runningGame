@@ -1,6 +1,7 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: "com.google.gms.google-services"
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -82,13 +83,13 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.stackhouse"
+    namespace "com.arcadegame.game.running.topgame.galaxyrunner"
     defaultConfig {
-        applicationId "com.stackhouse"
+        applicationId "com.arcadegame.game.running.topgame.galaxyrunner"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.1"
     }
     signingConfigs {
         debug {
@@ -127,10 +128,107 @@ android {
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+    implementation(platform("com.google.firebase:firebase-bom:34.12.0"))
+    implementation("com.google.firebase:firebase-messaging")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
     } else {
         implementation jscFlavor
+    }
+}
+
+// New Architecture: app CMake autolinking expects each library's JNI codegen dir to exist.
+// If configureCMake runs before a library's generateCodegenArtifactsFromSchema, CMake fails
+// (e.g. react-native-sound .../build/generated/source/codegen/jni missing).
+afterEvaluate {
+    // Some RN libraries don't actually generate codegen JNI output, but the autolinking CMake
+    // script still expects the directory to exist. Create the folders up front to avoid
+    // intermittent configureCMake failures.
+    def ensureAutolinkingCodegenJniDirs = tasks.register("ensureAutolinkingCodegenJniDirs") {
+        doLast {
+            // RN's default-app-setup sometimes defines REACT_NATIVE_APP_CODEGEN_HEADER=".h" when the app has no
+            // codegen output. Providing an empty ".h" in the generated autolinking include dir keeps native
+            // builds stable.
+            def autolinkingJniDir = new File(project.buildDir, "generated/autolinking/src/main/jni")
+            if (autolinkingJniDir.exists()) {
+                // 1) Stub app-local codegen header (included via REACT_NATIVE_APP_CODEGEN_HEADER)
+                def dotH = new File(autolinkingJniDir, ".h")
+                dotH.write(
+                    "#pragma once\n" +
+                    "#include <memory>\n" +
+                    "#include <string>\n" +
+                    "#include <ReactCommon/JavaTurboModule.h>\n" +
+                    "#include <ReactCommon/TurboModule.h>\n" +
+                    "#include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>\n" +
+                    "\n" +
+                    "namespace facebook::react {\n" +
+                    "inline std::shared_ptr<TurboModule> _ModuleProvider(\n" +
+                    "    const std::string&, const JavaTurboModule::InitParams&) {\n" +
+                    "  return nullptr;\n" +
+                    "}\n" +
+                    "inline void _registerComponentDescriptorsFromCodegen(\n" +
+                    "    std::shared_ptr<const ComponentDescriptorProviderRegistry>) {}\n" +
+                    "} // namespace facebook::react\n"
+                )
+
+                // 2) Stub header that some libraries (e.g. react-native-sound) may be referenced from autolinking.cpp
+                def rnSoundSpec = new File(autolinkingJniDir, "RNSoundSpec.h")
+                rnSoundSpec.write(
+                    "#pragma once\n" +
+                    "#include <memory>\n" +
+                    "#include <string>\n" +
+                    "#include <ReactCommon/JavaTurboModule.h>\n" +
+                    "#include <ReactCommon/TurboModule.h>\n" +
+                    "\n" +
+                    "namespace facebook::react {\n" +
+                    "inline std::shared_ptr<TurboModule> RNSoundSpec_ModuleProvider(\n" +
+                    "    const std::string&, const JavaTurboModule::InitParams&) {\n" +
+                    "  return nullptr;\n" +
+                    "}\n" +
+                    "} // namespace facebook::react\n"
+                )
+
+                // 3) Stub app component descriptor header (when none exists, macro can point to a bogus path)
+                def appDescriptors = new File(autolinkingJniDir, "react/renderer/components/ComponentDescriptors.h")
+                if (!appDescriptors.exists()) {
+                    appDescriptors.parentFile.mkdirs()
+                    appDescriptors.write("#pragma once\n")
+                }
+            }
+
+            rootProject.subprojects.each { sub ->
+                def dir = new File(sub.projectDir, "build/generated/source/codegen/jni")
+                if (!dir.exists()) dir.mkdirs()
+
+                // Autolinking uses add_subdirectory(...) so the folder must contain a CMakeLists.txt.
+                def cmakeLists = new File(dir, "CMakeLists.txt")
+                // Most libraries that land here generate their own CMake targets. Some (e.g. react-native-sound)
+                // are listed by autolinking as codegen targets but don't actually generate JNI build files.
+                // Provide an empty INTERFACE target so CMake configure doesn't fail.
+                if (sub.name == "react-native-sound") {
+                    def dummy = new File(dir, "dummy.c")
+                    dummy.write("void rn_sound_codegen_stub(void) {}\n")
+                    cmakeLists.write(
+                        "cmake_minimum_required(VERSION 3.13)\n" +
+                        "add_library(react_codegen_RNSoundSpec STATIC dummy.c)\n"
+                    )
+                } else if (!cmakeLists.exists()) {
+                    cmakeLists.write("")
+                }
+            }
+        }
+    }
+
+    tasks.configureEach { task ->
+        if (task.project == project && task.name.startsWith("configureCMake")) {
+            task.dependsOn(ensureAutolinkingCodegenJniDirs)
+            rootProject.subprojects.each { sub ->
+                def codegen = sub.tasks.findByName("generateCodegenArtifactsFromSchema")
+                if (codegen != null) {
+                    task.dependsOn(codegen)
+                }
+            }
+        }
     }
 }

@@ -13,7 +13,8 @@ import { TestIds } from "react-native-google-mobile-ads";
 export const USE_TEST_AD_IDS = true;
 
 /** Production — App Open */
-export const PRODUCTION_APP_OPEN_ANDROID = "ca-app-pub-6931427565019966/________";
+export const PRODUCTION_APP_OPEN_ANDROID =
+  "ca-app-pub-6931427565019966/________";
 export const PRODUCTION_APP_OPEN_IOS = "ca-app-pub-xxxxxxxxxxxxxxxx/________";
 
 /** Production — Banner (home / menus only) */
@@ -21,21 +22,28 @@ export const PRODUCTION_BANNER_ANDROID = "ca-app-pub-6931427565019966/________";
 export const PRODUCTION_BANNER_IOS = "ca-app-pub-xxxxxxxxxxxxxxxx/________";
 
 /** Production — Interstitial (e.g. before starting a run) */
-export const PRODUCTION_INTERSTITIAL_ANDROID = "ca-app-pub-6931427565019966/________";
-export const PRODUCTION_INTERSTITIAL_IOS = "ca-app-pub-xxxxxxxxxxxxxxxx/________";
+export const PRODUCTION_INTERSTITIAL_ANDROID =
+  "ca-app-pub-6931427565019966/________";
+export const PRODUCTION_INTERSTITIAL_IOS =
+  "ca-app-pub-xxxxxxxxxxxxxxxx/________";
 
 /** Production — Rewarded (e.g. shop: watch video for coins) */
-export const PRODUCTION_REWARDED_ANDROID = "ca-app-pub-6931427565019966/________";
+export const PRODUCTION_REWARDED_ANDROID =
+  "ca-app-pub-6931427565019966/________";
 export const PRODUCTION_REWARDED_IOS = "ca-app-pub-xxxxxxxxxxxxxxxx/________";
 
 export function resolveAppOpenUnitId(): string {
   if (USE_TEST_AD_IDS) return TestIds.APP_OPEN;
-  return Platform.OS === "android" ? PRODUCTION_APP_OPEN_ANDROID : PRODUCTION_APP_OPEN_IOS;
+  return Platform.OS === "android"
+    ? PRODUCTION_APP_OPEN_ANDROID
+    : PRODUCTION_APP_OPEN_IOS;
 }
 
 export function resolveBannerUnitId(): string {
   if (USE_TEST_AD_IDS) return TestIds.ADAPTIVE_BANNER;
-  return Platform.OS === "android" ? PRODUCTION_BANNER_ANDROID : PRODUCTION_BANNER_IOS;
+  return Platform.OS === "android"
+    ? PRODUCTION_BANNER_ANDROID
+    : PRODUCTION_BANNER_IOS;
 }
 
 export function resolveInterstitialUnitId(): string {

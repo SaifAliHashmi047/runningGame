@@ -22,7 +22,10 @@ export function HomeScreenBanner() {
         unitId={resolveBannerUnitId()}
         size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
         requestOptions={{ ...AD_REQUEST_OPTIONS }}
-        onAdFailedToLoad={() => setFailed(true)}
+        onAdFailedToLoad={(e) => {
+          if (__DEV__) console.warn("[Ads] Banner failed to load:", e);
+          setFailed(true);
+        }}
       />
     </View>
   );
