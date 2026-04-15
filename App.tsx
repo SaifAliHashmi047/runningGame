@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Animated, {
   cancelAnimation,
   ReduceMotion,
@@ -23,7 +29,10 @@ import type { ShipVariant } from "./components/Ship";
 import HeroGameAnchor from "./components/HeroGameAnchor";
 import ShopModal from "./components/ShopModal";
 import { powerUpWorldRenderOutset } from "./components/PowerUp";
-import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  SafeAreaProvider,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { AdsRoot, HomeScreenBanner } from "./src/ads";
 import {
   prepareShopRewardedAd,
@@ -69,6 +78,7 @@ import {
 } from "./src/game/hitboxes";
 import HitboxDebugOverlay from "./src/ui/HitboxDebugOverlay";
 import FuturisticGameplayBackground from "./src/ui/game/FuturisticGameplayBackground";
+import { preloadAppAssets } from "./src/boot/preloadAppAssets";
 import { COIN_TEXTURE } from "./src/assets/coins";
 import { OBSTACLE_TEXTURE_SOURCES } from "./src/assets/obstacles";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -85,7 +95,6 @@ import { pickPowerUpKind, POWERUP_DEFS } from "./src/game/powers";
 import { ActivePowerUpsHud, PowerPickupFlash } from "./src/ui/powerups";
 import AppStatusBar from "./src/ui/AppStatusBar";
 import {
-  ensureBackgroundMusicLoaded,
   getAudioManager,
   pauseBackgroundMusic,
   releaseGlobalMusic,
@@ -169,6 +178,7 @@ import {
   compactPowerUpsOffScreen,
 } from "./src/game/runLoop/simEntityCull";
 import { obstacleBroadphaseX } from "./src/game/runLoop/broadphaseCollision";
+import { useNoftication } from "./src/hooks/useNotification";
 import {
   PerfSampler,
   type PerfSamplerStats,
@@ -178,7 +188,6 @@ import HeroControlHintCallout from "./src/ui/game/HeroControlHintCallout";
 import GameRunHud from "./src/ui/game/GameRunHud";
 import GameOverOverlay from "./src/ui/game/GameOverOverlay";
 import PauseRibbon from "./src/ui/game/PauseRibbon";
-import GameplayLaneGuide from "./src/ui/game/GameplayLaneGuide";
 import AmbientParticles from "./src/ui/game/AmbientParticles";
 import {
   HUD_SCORE_THROTTLE_MS,
@@ -314,10 +323,7 @@ function touchLocationYToPlayfieldY(
   return (ly / h) * ph;
 }
 
-function touchLocationXToScreenX(
-  locationX: number,
-  viewWidth: number,
-): number {
+function touchLocationXToScreenX(locationX: number, viewWidth: number): number {
   const w = viewWidth > 0 ? viewWidth : SCREEN_WIDTH;
   const lx = Math.max(0, Math.min(w, locationX));
   return (lx / w) * SCREEN_WIDTH;
@@ -490,8 +496,7 @@ function isTouchInsideHeroDragStart(
   const ph = gamePlayfieldH();
   const left = s.playerX - slop;
   const right = s.playerX + PLAYER_WIDTH + slop;
-  const top =
-    ph - (GROUND_HEIGHT + steer + jump + PLAYER_HEIGHT) - slop;
+  const top = ph - (GROUND_HEIGHT + steer + jump + PLAYER_HEIGHT) - slop;
   const bottom = ph - (GROUND_HEIGHT + steer + jump) + slop;
   return sx >= left && sx <= right && sy >= top && sy <= bottom;
 }
@@ -801,7 +806,12 @@ function GameScreen({
   const touchOffsetYRef = useRef(0);
   const gameLayoutRef = useRef<{ w: number; h: number } | null>(null);
   const containerRef = useRef<RNView | null>(null);
-  const containerWinRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const containerWinRef = useRef<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
   const perfSamplerRef = useRef(new PerfSampler());
   const lastFramePerfRef = useRef(perfNow());
   const lastPerfUiRef = useRef(0);
@@ -1513,7 +1523,9 @@ function GameScreen({
 
         const tiltFollow =
           tiltSteeringActiveRef.current && !isDraggingRef.current;
-        const followLerp = tiltFollow ? TILT_HERO_FOLLOW_LERP : HERO_FOLLOW_LERP;
+        const followLerp = tiltFollow
+          ? TILT_HERO_FOLLOW_LERP
+          : HERO_FOLLOW_LERP;
         const t = 1 - Math.pow(1 - followLerp, k);
         const maxStep =
           HERO_MAX_STEP_PER_FRAME *
@@ -1601,7 +1613,11 @@ function GameScreen({
             Math.floor((runnerInt * phaseMul) / Math.max(0.55, zObs)),
           );
           const inViewport = () =>
-            countObstaclesInPlayViewport(SCREEN_WIDTH, gamePlayfieldH(), obsArr);
+            countObstaclesInPlayViewport(
+              SCREEN_WIDTH,
+              gamePlayfieldH(),
+              obsArr,
+            );
 
           if (inViewport() >= MAX_ON_SCREEN_OBSTACLES) {
             s.spawnCooldown = 10 + Math.random() * Math.max(8, blended * 0.22);
@@ -1980,7 +1996,13 @@ function GameScreen({
           const pu = s.powerUps[pi];
           if (collidesPower(pwY, s.playerX, pu)) {
             const { type } = pu;
-            applyPowerUpKindEffect(s, type, nowTs, pressure, scheduleCoinPersist);
+            applyPowerUpKindEffect(
+              s,
+              type,
+              nowTs,
+              pressure,
+              scheduleCoinPersist,
+            );
             setUiEpoch((e) => e + 1);
             powPool.release(pu);
             continue;
@@ -2229,11 +2251,7 @@ function GameScreen({
             bestRunStatsRef.current = next;
             setShopBestStats(next);
             const merged = sanitizeOwnedSkins(
-              mergeMilestoneUnlocks(
-                ownedSnap,
-                next.distanceM,
-                next.runCoins,
-              ),
+              mergeMilestoneUnlocks(ownedSnap, next.distanceM, next.runCoins),
             );
             if (JSON.stringify(merged) !== JSON.stringify(ownedSnap)) {
               await AsyncStorage.setItem(
@@ -2326,11 +2344,7 @@ function GameScreen({
     const desiredCenterY = fingerSY - touchOffsetYRef.current;
     s0.playerXTarget = clampPlayerLeft(desiredCenterX - PLAYER_WIDTH / 2);
     s0.playerSteerYTarget = clampPlayerSteerY(
-      ph -
-        desiredCenterY -
-        PLAYER_HEIGHT / 2 -
-        GROUND_HEIGHT -
-        s0.playerY,
+      ph - desiredCenterY - PLAYER_HEIGHT / 2 - GROUND_HEIGHT - s0.playerY,
       s0.playerY,
     );
   }, []);
@@ -2369,11 +2383,7 @@ function GameScreen({
     s.playerXTarget = clampPlayerLeft(desiredCenterX - PLAYER_WIDTH / 2);
     const ph = gamePlayfieldH();
     s.playerSteerYTarget = clampPlayerSteerY(
-      ph -
-        desiredCenterY -
-        PLAYER_HEIGHT / 2 -
-        GROUND_HEIGHT -
-        jump,
+      ph - desiredCenterY - PLAYER_HEIGHT / 2 - GROUND_HEIGHT - jump,
       jump,
     );
   }, []);
@@ -2407,7 +2417,9 @@ function GameScreen({
   const heroHintBottomOffset = useMemo(
     () =>
       heightPixel(14) +
-      (showBannerAds ? heightPixel(8) : Math.max(insets.bottom, heightPixel(8))),
+      (showBannerAds
+        ? heightPixel(8)
+        : Math.max(insets.bottom, heightPixel(8))),
     [showBannerAds, insets.bottom],
   );
 
@@ -2421,195 +2433,195 @@ function GameScreen({
         <View style={styles.gameTouchHost}>
           <TouchableWithoutFeedback onPress={handleJump}>
             <View style={styles.gameRoot} onLayout={onGameRootLayout}>
-            <View
-              ref={(r) => {
-                containerRef.current = r;
-              }}
-              style={styles.container}
-              onTouchStart={onFarDragHintTouchStart}
-              onTouchMove={onFarDragHintTouchMove}
-              onTouchEnd={onFarDragHintTouchEnd}
-              onTouchCancel={onFarDragHintTouchEnd}
-              onStartShouldSetResponder={onStartShouldSetHeroResponder}
-              onResponderTerminationRequest={() => false}
-              onResponderGrant={onResponderGrant}
-              onResponderMove={onResponderMove}
-              onResponderRelease={onResponderEnd}
-              onResponderTerminate={onResponderEnd}
-            >
-            <AmbientParticles density={visualTier >= 2 ? "low" : "medium"} />
-            <GameplayLaneGuide
-              screenW={SCREEN_WIDTH}
-              screenH={playfieldHForUi}
-              groundH={GROUND_HEIGHT}
-            />
-            {worldFx.dangerVisual === "warn" && visualTier < 3 && (
               <View
-                pointerEvents="none"
-                style={[StyleSheet.absoluteFillObject, styles.fxWashWarn]}
-              />
-            )}
-            {worldFx.dangerVisual === "burst" && visualTier < 3 && (
-              <View
-                pointerEvents="none"
-                style={[StyleSheet.absoluteFillObject, styles.fxWashBurst]}
-              />
-            )}
-            {worldFx.feverActive && visualTier < 3 && (
-              <View
-                pointerEvents="none"
-                style={[StyleSheet.absoluteFillObject, styles.fxWashFever]}
-              />
-            )}
-            <GameRunHud
-              score={runHud.score}
-              distanceFloor={runHud.distanceFloor}
-              coinsCollected={
-                gameOver ? sim.current.coinsCollected : runHud.coinsCollected
-              }
-              gameOver={gameOver}
-              shopOpen={sim.current.shopOpen}
-              runPaused={runPaused}
-              onToggleRunPause={toggleRunPause}
-              onOpenShop={gameOver ? toggleShop : undefined}
-              showTiltRecenter={tiltControlActive}
-              onTiltRecenter={() => {
-                getAudioManager().playButtonTap();
-                tiltRecenter();
-              }}
-              onExitToHome={() => {
-                getAudioManager().playButtonTap();
-                handleExitToHome();
-              }}
-            />
-            {zoneBanner != null && (
-              <View
-                style={styles.zoneBannerWrap}
-                pointerEvents="none"
-                key={zoneBanner.id}
+                ref={(r) => {
+                  containerRef.current = r;
+                }}
+                style={styles.container}
+                onTouchStart={onFarDragHintTouchStart}
+                onTouchMove={onFarDragHintTouchMove}
+                onTouchEnd={onFarDragHintTouchEnd}
+                onTouchCancel={onFarDragHintTouchEnd}
+                onStartShouldSetResponder={onStartShouldSetHeroResponder}
+                onResponderTerminationRequest={() => false}
+                onResponderGrant={onResponderGrant}
+                onResponderMove={onResponderMove}
+                onResponderRelease={onResponderEnd}
+                onResponderTerminate={onResponderEnd}
               >
-                <View style={styles.zoneBanner}>
-                  <Text style={styles.zoneBannerTitle}>
-                    Zone {zoneBanner.zoneNumber}
-                  </Text>
-                  <Text style={styles.zoneBannerSub}>
-                    Speed up — stay sharp
-                  </Text>
-                </View>
-              </View>
-            )}
-            {/* Removed bottom deck panel — keep background as one piece. */}
-            <HeroGameAnchor
-              key={`hero-${runSessionKey}`}
-              width={PLAYER_WIDTH}
-              height={PLAYER_HEIGHT}
-              leftSV={heroLeftSV}
-              bottomSV={heroBottomSV}
-              qualityTier={Math.max(2, visualTier) as VisualQualityTier}
-              skinImage={heroImageForSkinId(sim.current.currentSkin)}
-              powerFx={heroPowerFxPack}
-            />
-            <ShopModal
-              open={sim.current.shopOpen && gameOver}
-              coins={sim.current.coinsCollected}
-              ownedSkins={sim.current.ownedSkins}
-              currentSkin={sim.current.currentSkin}
-              skins={SHOP_SKIN_ROWS}
-              bestSingleRunDistanceM={Math.max(
-                shopBestStats.distanceM,
-                Math.floor(sim.current.runDistance),
-              )}
-              bestSingleRunCoins={Math.max(
-                shopBestStats.runCoins,
-                sim.current.coinsEarnedThisRun,
-              )}
-              onClose={toggleShop}
-              onBuyOrEquip={handleBuyOrEquip}
-              onWatchVideoForCoins={handleWatchVideoForCoins}
-              videoRewardBusy={videoRewardBusy}
-              controlButtonStyle={styles.controlButton}
-              controlTextStyle={styles.controlText}
-            />
-            <View
-              style={StyleSheet.absoluteFillObject}
-              pointerEvents="none"
-              collapsable={false}
-            >
-              <WorldEntityLayer
-                key={`world-${runSessionKey}`}
-                obstacleSpecs={obsRenderSpecs}
-                coinSpecs={coinRenderSpecs}
-                powerSpecs={powerRenderSpecs}
-                obsPositions={obsPositionsSV}
-                coinPositions={coinPositionsSV}
-                powerPositions={powerPositionsSV}
-              />
-            </View>
-
-            {HITBOX_OVERLAY_ENABLED ? (
-              <HitboxDebugOverlay
-                screenHeight={playfieldHForUi}
-                groundHeight={GROUND_HEIGHT}
-                playerX={sim.current.playerX}
-                playerY={playerWorldYOffset(sim.current)}
-                playerWidth={PLAYER_WIDTH}
-                playerHeight={PLAYER_HEIGHT}
-                obstacles={sim.current.obstacles}
-              />
-            ) : null}
-
-            <ActivePowerUpsHud
-              shieldUntil={sim.current.shieldUntil}
-              multiplierUntil={sim.current.x2Until}
-              magnetUntil={sim.current.magnetUntil}
-              boostUntil={sim.current.boostUntil}
-              slowTimeUntil={sim.current.slowTimeUntil}
-              ghostPhaseUntil={sim.current.ghostPhaseUntil}
-            />
-            <PowerPickupFlash
-              kind={sim.current.pickupFlashKind}
-              token={sim.current.pickupFlashToken}
-            />
-
-            <PauseRibbon
-              visible={runPaused && !gameOver && !sim.current.shopOpen}
-            />
-
-            {heroHintVisible ? (
-              <View style={styles.heroHintLayer} pointerEvents="none">
-                <HeroControlHintCallout
-                  key={heroHintKey}
-                  bottomOffset={heroHintBottomOffset}
-                  onDismiss={dismissHeroHint}
+                <AmbientParticles
+                  density={visualTier >= 2 ? "low" : "medium"}
                 />
-              </View>
-            ) : null}
+                {/* GameplayLaneGuide removed (was rendering a rounded “screen” corridor overlay). */}
+                {worldFx.dangerVisual === "warn" && visualTier < 3 && (
+                  <View
+                    pointerEvents="none"
+                    style={[StyleSheet.absoluteFillObject, styles.fxWashWarn]}
+                  />
+                )}
+                {worldFx.dangerVisual === "burst" && visualTier < 3 && (
+                  <View
+                    pointerEvents="none"
+                    style={[StyleSheet.absoluteFillObject, styles.fxWashBurst]}
+                  />
+                )}
+                {worldFx.feverActive && visualTier < 3 && (
+                  <View
+                    pointerEvents="none"
+                    style={[StyleSheet.absoluteFillObject, styles.fxWashFever]}
+                  />
+                )}
+                <GameRunHud
+                  score={runHud.score}
+                  distanceFloor={runHud.distanceFloor}
+                  coinsCollected={
+                    gameOver
+                      ? sim.current.coinsCollected
+                      : runHud.coinsCollected
+                  }
+                  gameOver={gameOver}
+                  shopOpen={sim.current.shopOpen}
+                  runPaused={runPaused}
+                  onToggleRunPause={toggleRunPause}
+                  onOpenShop={gameOver ? toggleShop : undefined}
+                  showTiltRecenter={tiltControlActive}
+                  onTiltRecenter={() => {
+                    getAudioManager().playButtonTap();
+                    tiltRecenter();
+                  }}
+                  onExitToHome={() => {
+                    getAudioManager().playButtonTap();
+                    handleExitToHome();
+                  }}
+                />
+                {zoneBanner != null && (
+                  <View
+                    style={styles.zoneBannerWrap}
+                    pointerEvents="none"
+                    key={zoneBanner.id}
+                  >
+                    <View style={styles.zoneBanner}>
+                      <Text style={styles.zoneBannerTitle}>
+                        Zone {zoneBanner.zoneNumber}
+                      </Text>
+                      <Text style={styles.zoneBannerSub}>
+                        Speed up — stay sharp
+                      </Text>
+                    </View>
+                  </View>
+                )}
+                {/* Removed bottom deck panel — keep background as one piece. */}
+                <HeroGameAnchor
+                  key={`hero-${runSessionKey}`}
+                  width={PLAYER_WIDTH}
+                  height={PLAYER_HEIGHT}
+                  leftSV={heroLeftSV}
+                  bottomSV={heroBottomSV}
+                  qualityTier={Math.max(2, visualTier) as VisualQualityTier}
+                  skinImage={heroImageForSkinId(sim.current.currentSkin)}
+                  powerFx={heroPowerFxPack}
+                />
+                <ShopModal
+                  open={sim.current.shopOpen && gameOver}
+                  coins={sim.current.coinsCollected}
+                  ownedSkins={sim.current.ownedSkins}
+                  currentSkin={sim.current.currentSkin}
+                  skins={SHOP_SKIN_ROWS}
+                  bestSingleRunDistanceM={Math.max(
+                    shopBestStats.distanceM,
+                    Math.floor(sim.current.runDistance),
+                  )}
+                  bestSingleRunCoins={Math.max(
+                    shopBestStats.runCoins,
+                    sim.current.coinsEarnedThisRun,
+                  )}
+                  onClose={toggleShop}
+                  onBuyOrEquip={handleBuyOrEquip}
+                  onWatchVideoForCoins={handleWatchVideoForCoins}
+                  videoRewardBusy={videoRewardBusy}
+                  controlButtonStyle={styles.controlButton}
+                  controlTextStyle={styles.controlText}
+                />
+                <View
+                  style={StyleSheet.absoluteFillObject}
+                  pointerEvents="none"
+                  collapsable={false}
+                >
+                  <WorldEntityLayer
+                    key={`world-${runSessionKey}`}
+                    obstacleSpecs={obsRenderSpecs}
+                    coinSpecs={coinRenderSpecs}
+                    powerSpecs={powerRenderSpecs}
+                    obsPositions={obsPositionsSV}
+                    coinPositions={coinPositionsSV}
+                    powerPositions={powerPositionsSV}
+                  />
+                </View>
 
-            {gameOver ? (
-              <GameOverOverlay
-                score={sim.current.score}
-                runDistance={sim.current.runDistance}
-                coinsCollected={sim.current.coinsCollected}
-                pickupScore={sim.current.pickupScore}
-                reviveVideoBusy={reviveVideoBusy}
-                onReviveVideo={handleReviveVideo}
-                onRetry={() => {
-                  getAudioManager().playButtonTap();
-                  handleRetry();
-                }}
-                onExitToHome={() => {
-                  getAudioManager().playButtonTap();
-                  handleExitToHome();
-                }}
-              />
-            ) : null}
-          </View>
-          {DEBUG_PERF_OVERLAY ? (
-            <View pointerEvents="none" style={styles.fpsDebugWrap}>
-              <FpsPerfOverlay visible stats={perfStats} />
+                {HITBOX_OVERLAY_ENABLED ? (
+                  <HitboxDebugOverlay
+                    screenHeight={playfieldHForUi}
+                    groundHeight={GROUND_HEIGHT}
+                    playerX={sim.current.playerX}
+                    playerY={playerWorldYOffset(sim.current)}
+                    playerWidth={PLAYER_WIDTH}
+                    playerHeight={PLAYER_HEIGHT}
+                    obstacles={sim.current.obstacles}
+                  />
+                ) : null}
+
+                <ActivePowerUpsHud
+                  shieldUntil={sim.current.shieldUntil}
+                  multiplierUntil={sim.current.x2Until}
+                  magnetUntil={sim.current.magnetUntil}
+                  boostUntil={sim.current.boostUntil}
+                  slowTimeUntil={sim.current.slowTimeUntil}
+                  ghostPhaseUntil={sim.current.ghostPhaseUntil}
+                />
+                <PowerPickupFlash
+                  kind={sim.current.pickupFlashKind}
+                  token={sim.current.pickupFlashToken}
+                />
+
+                <PauseRibbon
+                  visible={runPaused && !gameOver && !sim.current.shopOpen}
+                />
+
+                {heroHintVisible ? (
+                  <View style={styles.heroHintLayer} pointerEvents="none">
+                    <HeroControlHintCallout
+                      key={heroHintKey}
+                      bottomOffset={heroHintBottomOffset}
+                      onDismiss={dismissHeroHint}
+                    />
+                  </View>
+                ) : null}
+
+                {gameOver ? (
+                  <GameOverOverlay
+                    score={sim.current.score}
+                    runDistance={sim.current.runDistance}
+                    coinsCollected={sim.current.coinsCollected}
+                    pickupScore={sim.current.pickupScore}
+                    reviveVideoBusy={reviveVideoBusy}
+                    onReviveVideo={handleReviveVideo}
+                    onRetry={() => {
+                      getAudioManager().playButtonTap();
+                      handleRetry();
+                    }}
+                    onExitToHome={() => {
+                      getAudioManager().playButtonTap();
+                      handleExitToHome();
+                    }}
+                  />
+                ) : null}
+              </View>
+              {DEBUG_PERF_OVERLAY ? (
+                <View pointerEvents="none" style={styles.fpsDebugWrap}>
+                  <FpsPerfOverlay visible stats={perfStats} />
+                </View>
+              ) : null}
             </View>
-          ) : null}
-          </View>
           </TouchableWithoutFeedback>
         </View>
         {showBannerAds ? (
@@ -2632,6 +2644,9 @@ export default function App() {
   const [showHome, setShowHome] = useState(true);
   const [gyroSteeringEnabled, setGyroSteeringEnabled] = useState(false);
   const [splashDismissed, setSplashDismissed] = useState(false);
+  // App-open ads can steal focus during the exact moment home is mounting/animating.
+  // Delay eligibility slightly so the first home paint (logo + play CTA) feels responsive.
+  const [homeUiReadyForAppOpen, setHomeUiReadyForAppOpen] = useState(false);
   const [homeShopOpen, setHomeShopOpen] = useState(false);
   const [homeShopCoins, setHomeShopCoins] = useState(0);
   const [homeOwnedSkins, setHomeOwnedSkins] = useState<string[]>(["classic"]);
@@ -2641,6 +2656,40 @@ export default function App() {
     distanceM: 0,
     runCoins: 0,
   });
+  const bootGateTokenRef = useRef(0);
+  const [bootGateToken, setBootGateToken] = useState(0);
+  useNoftication();
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        await preloadAppAssets();
+      } catch {
+        /* best-effort */
+      } finally {
+        if (cancelled) return;
+        bootGateTokenRef.current += 1;
+        setBootGateToken(bootGateTokenRef.current);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showHome) {
+      setHomeUiReadyForAppOpen(false);
+      return;
+    }
+    if (!splashDismissed) {
+      setHomeUiReadyForAppOpen(false);
+      return;
+    }
+    const t = setTimeout(() => setHomeUiReadyForAppOpen(true), 900);
+    return () => clearTimeout(t);
+  }, [showHome, splashDismissed]);
 
   useEffect(() => {
     if (DEV_GRANT_COINS_ON_LAUNCH > 0) {
@@ -2667,10 +2716,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void (async () => {
-      await getAudioManager().preload();
-      await ensureBackgroundMusicLoaded();
-    })();
     return () => {
       releaseGlobalMusic();
       getAudioManager().dispose();
@@ -2770,9 +2815,7 @@ export default function App() {
           rawCurrent && rawCurrent.length > 0 ? rawCurrent : undefined,
         );
         if (current !== rawCurrent) {
-          await AsyncStorage.setItem(CURRENT_SKIN_KEY, current).catch(
-            () => {},
-          );
+          await AsyncStorage.setItem(CURRENT_SKIN_KEY, current).catch(() => {});
         }
         const coinsParsed = rawCoins != null ? parseInt(rawCoins, 10) : 0;
         setHomeOwnedSkins(merged);
@@ -2858,7 +2901,12 @@ export default function App() {
   return (
     <SafeAreaProvider style={{ flex: 1, backgroundColor: "transparent" }}>
       <ReducedMotionConfig mode={ReduceMotion.Never} />
-      <AdsRoot isHome={showHome} canPresentAppOpen={!showHome || splashDismissed} />
+      <AdsRoot
+        isHome={showHome}
+        // Only allow app-open promos once the home shell is actually interactive
+        // (splash overlay must not compete with the first paint / touches).
+        canPresentAppOpen={showHome && homeUiReadyForAppOpen}
+      />
       <AppStatusBar />
       <View style={styles.routeHost}>
         {showHome ? (
@@ -2880,7 +2928,11 @@ export default function App() {
               onOpenShop={openHomeShop}
             />
             {!splashDismissed ? (
-              <GameSplashScreen onComplete={() => setSplashDismissed(true)} />
+              <GameSplashScreen
+              waitForAssetGate
+              gateReleaseToken={bootGateToken}
+              onComplete={() => setSplashDismissed(true)}
+            />
             ) : null}
             <ShopModal
               open={homeShopOpen}
@@ -2926,7 +2978,7 @@ const styles = StyleSheet.create({
   },
   gameScreenWrapper: {
     flex: 1,
-    backgroundColor: "#040816",
+    backgroundColor: "transparent",
   },
   safe: {
     flex: 1,

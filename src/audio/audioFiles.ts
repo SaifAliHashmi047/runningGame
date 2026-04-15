@@ -1,6 +1,8 @@
 /**
  * Filenames must exist in:
- * - Android: `android/app/src/main/res/raw/` (lowercase, underscores)
+ * - Android: `android/app/src/main/res/raw/` (lowercase, underscores). Release shrinking: keep
+ *   rules live in `android/app/src/main/res/xml/rn_sound_audio_keep.xml` (not `res/raw/keep.xml` —
+ *   RN codegen overwrites that path for drawable keeps).
  * - iOS: `ios/StackHouse/` (in Xcode target Resources)
  *
  * Run `node scripts/gen-game-audio-wavs.mjs` to emit placeholder WAVs.

@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "696975339640",
+    "project_id": "runninggame-61373",
+    "storage_bucket": "runninggame-61373.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:696975339640:android:5568ec7d5cddb531813d8d",
+        "android_client_info": {
+          "package_name": "com.arcadegame.game.running.topgame.galaxyrunner"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCy7yjRM3VKLU0GfwjaZ4bVe-dcW4IfwAU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:696975339640:android:5f192235f4493136813d8d",
+        "android_client_info": {
+          "package_name": "com.stackhouse"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCy7yjRM3VKLU0GfwjaZ4bVe-dcW4IfwAU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

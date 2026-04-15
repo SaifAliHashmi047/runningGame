@@ -15,6 +15,24 @@ buildscript {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        classpath("com.google.gms:google-services:4.4.4") 
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+
+        // AsyncStorage v3 bundles org.asyncstorage.shared_storage:storage-android in node_modules (not Maven Central).
+        maven {
+            url = file("${rootDir}/../node_modules/@react-native-async-storage/async-storage/android/local_repo").toURI()
+        }
+
+        // Notifee ships local Maven artifacts in node_modules.
+        maven {
+            url = file("${rootDir}/../node_modules/@notifee/react-native/android/libs").toURI()
+        }
     }
 }
 

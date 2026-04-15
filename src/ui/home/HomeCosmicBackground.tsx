@@ -1,6 +1,7 @@
 import React, { memo } from "react";
 import { Image, StyleSheet, View, useWindowDimensions } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
+import { HOME_COSMIC_BACKGROUND } from "./homeBackgroundAsset";
 
 /**
  * Full-bleed raster for Home — blur fill + sharp contain (no letterbox bars), aligned with gameplay BG treatment.
@@ -11,7 +12,7 @@ function HomeCosmicBackgroundInner() {
     return <View style={[styles.fallback, StyleSheet.absoluteFillObject]} />;
   }
 
-  const src = require("../../assets/bg/home_cosmic_highway.jpg");
+  const src = HOME_COSMIC_BACKGROUND;
 
   return (
     <View style={[StyleSheet.absoluteFillObject, styles.root]} pointerEvents="none">
