@@ -1,4 +1,4 @@
-package com.arcadegame.game.running.topgame.galaxyrunner
+package arcadegame.running.topgame.galaxyrunner
 
 import android.app.Application
 import com.facebook.react.PackageList
@@ -10,10 +10,6 @@ import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 class MainApplication : Application(), ReactApplication {
 
   companion object {
-    /**
-     * Static references so R8 / resource shrink keeps these `res/raw` entries. `react-native-sound`
-     * resolves them only via getIdentifier(name, "raw", …) at runtime.
-     */
     @Suppress("unused")
     private val keepSoundRawResources: IntArray =
       intArrayOf(
@@ -39,8 +35,7 @@ class MainApplication : Application(), ReactApplication {
       context = applicationContext,
       packageList =
         PackageList(this).packages.apply {
-          // Packages that cannot be autolinked yet can be added manually here, for example:
-          // add(MyReactNativePackage())
+          // Packages that cannot be autolinked yet can be added manually here.
         },
     )
   }

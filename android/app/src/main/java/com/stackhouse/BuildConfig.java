@@ -11,9 +11,9 @@ public final class BuildConfig {
   private BuildConfig() {}
 
   public static final boolean IS_NEW_ARCHITECTURE_ENABLED =
-      com.arcadegame.game.running.topgame.galaxyrunner.BuildConfig.IS_NEW_ARCHITECTURE_ENABLED;
+      arcadegame.running.topgame.galaxyrunner.BuildConfig.IS_NEW_ARCHITECTURE_ENABLED;
 
   public static final boolean IS_EDGE_TO_EDGE_ENABLED =
-      com.arcadegame.game.running.topgame.galaxyrunner.BuildConfig.IS_EDGE_TO_EDGE_ENABLED;
+      arcadegame.running.topgame.galaxyrunner.BuildConfig.IS_EDGE_TO_EDGE_ENABLED;
 }
 
