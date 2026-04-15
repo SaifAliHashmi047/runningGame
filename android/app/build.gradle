@@ -83,9 +83,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.arcadegame.game.running.topgame.galaxyrunner"
+    namespace "arcadegame.running.topgame.galaxyrunner"
     defaultConfig {
-        applicationId "com.arcadegame.game.running.topgame.galaxyrunner"
+        applicationId "arcadegame.running.topgame.galaxyrunner"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 2
@@ -99,12 +99,13 @@ android {
             keyPassword 'android'
         }
         release {
-            if (keystorePropertiesFile.exists()) {
-                storeFile rootProject.file(keystoreProperties['storeFile'])
-                storePassword keystoreProperties['storePassword']
-                keyAlias keystoreProperties['keyAlias']
-                keyPassword keystoreProperties['keyPassword']
+            if (!keystorePropertiesFile.exists()) {
+                throw new GradleException("Missing android/keystore.properties. Release builds must be signed with the upload keystore.")
             }
+            storeFile rootProject.file(keystoreProperties['storeFile'])
+            storePassword keystoreProperties['storePassword']
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
         }
     }
     buildTypes {
@@ -114,9 +115,7 @@ android {
             shrinkResources false
         }
         release {
-            signingConfig keystorePropertiesFile.exists()
-                ? signingConfigs.release
-                : signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled true
             shrinkResources true
             /* R8 in full mode (gradle.properties) + optimize proguard file. */
@@ -220,9 +219,27 @@ afterEvaluate {
         }
     }
 
+    // `:app:externalNativeBuildClean*` can run after `<lib>:clean` tasks which delete the stubbed
+    // codegen JNI folders we create. Make sure our ensure task always runs after all project clean tasks.
+    def allCleanTasks = []
+    rootProject.subprojects.each { sub ->
+        if (sub == project) return
+        def cleanTask = sub.tasks.findByName("clean")
+        if (cleanTask != null) allCleanTasks.add(cleanTask)
+    }
+    ensureAutolinkingCodegenJniDirs.configure { t ->
+        if (!allCleanTasks.isEmpty()) {
+            t.mustRunAfter(allCleanTasks)
+        }
+    }
+
     tasks.configureEach { task ->
-        if (task.project == project && task.name.startsWith("configureCMake")) {
+        if (task.project != project) return
+
+        // Keep New Architecture autolinking stable across both configure and clean phases.
+        if (task.name.startsWith("configureCMake") || task.name.startsWith("externalNativeBuild")) {
             task.dependsOn(ensureAutolinkingCodegenJniDirs)
+
             rootProject.subprojects.each { sub ->
                 def codegen = sub.tasks.findByName("generateCodegenArtifactsFromSchema")
                 if (codegen != null) {
